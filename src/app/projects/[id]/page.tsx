@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import Navbar from "@/components/Navbar";
 import ToggleCheckbox from "@/components/ToggleCheckbox";
 import DeleteProjectButton from "@/components/DeleteProjectButton";
+import ProjectFiles from "@/components/ProjectFiles";
+import FileUploader from "@/components/FileUploader";
 import { toggleTodo, toggleQuestion } from "@/lib/actions";
 import { fmtMoney, fmtDate } from "@/lib/format";
 
@@ -28,6 +30,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
       keyDates: { orderBy: { order: "asc" } },
       todos: { orderBy: { order: "asc" } },
       questions: { orderBy: { order: "asc" } },
+      files: { orderBy: { uploadedAt: "desc" } },
     },
   });
   if (!project) notFound();
@@ -130,6 +133,15 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
               ))}
               {project.questions.length === 0 && <p className="text-sm text-brand-inkFaint">No open questions.</p>}
             </div>
+          </div>
+
+          {/* Files & Documents */}
+          <div className="p-5 border-b border-brand-line">
+            <div className="flex items-center justify-between mb-3">
+              <p className="kicker">Files & Documents</p>
+              <FileUploader projectId={project.id} />
+            </div>
+            <ProjectFiles files={project.files} />
           </div>
 
           {/* Financials */}

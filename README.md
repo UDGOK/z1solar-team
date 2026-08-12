@@ -75,17 +75,20 @@ git push -u origin main
 
 1. Go to [vercel.com/new](https://vercel.com/new) and import the GitHub repo.
 2. **Add a Postgres database:** in the project → **Storage** tab → **Create
-   Database** → Postgres (this is Neon under the hood, native Vercel
-   integration). Vercel automatically adds `DATABASE_URL` to your project's
-   environment variables — you don't need to copy/paste it.
-3. **Add the other environment variables** (Project → Settings →
+   Database** → Postgres (marketplace option is Neon — free tier is fine).
+   Vercel automatically adds `DATABASE_URL` to your project's environment
+   variables — you don't need to copy/paste it.
+3. **Add Blob storage (for project file/image uploads):** Storage tab →
+   Create Database → **Blob**. This auto-injects `BLOB_READ_WRITE_TOKEN`
+   into your environment variables the same way.
+4. **Add the other environment variables** (Project → Settings →
    Environment Variables):
    - `SESSION_SECRET` — a long random string (`openssl rand -hex 32`)
    - `TEAM_PASSWORD` — the password to seed on first run (optional if you
      seed manually, see below)
-4. **Deploy.** Vercel runs `prisma generate && next build` automatically
+5. **Deploy.** Vercel runs `prisma generate && next build` automatically
    (that's the `build` script in `package.json`).
-5. **Push the schema to the production database.** From your local machine,
+6. **Push the schema to the production database.** From your local machine,
    point `DATABASE_URL` at the same Postgres instance Vercel just created
    (copy it from Vercel → Storage → your DB → `.env.local` tab), then run:
    ```bash

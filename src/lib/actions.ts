@@ -239,3 +239,44 @@ export async function updateWhatsAppLink(link: string) {
   revalidatePath("/team");
   revalidatePath("/dashboard");
 }
+
+export async function updateMeetingLink(link: string) {
+  if (!(await requireAuth())) redirect("/login");
+  await prisma.settings.update({ where: { id: "singleton" }, data: { meetingLink: link.trim() || null } });
+  revalidatePath("/team");
+  revalidatePath("/dashboard");
+  revalidatePath("/settings");
+}
+
+// ---------- Project files ----------
+
+export async function attachFileToProject(
+  projectId: string,
+  file: { url: string; pathname: string; filename: string; contentType?: string; size: number }
+) {
+  if (!(await requireAuth())) redirect("/login");
+  await prisma.projectFile.create({
+    data: {
+      projectId,
+      url: file.url,
+      pathname: file.pathname,
+      filename: file.filename,
+      contentType: file.contentType || null,
+      size: file.size,
+    },
+  });
+  revalidatePath(`/projects/${projectId}`);
+}
+
+export async function deleteProjectFile(fileId: string) {
+  if (!(await requireAuth())) redirect("/login");
+  const file = await prisma.projectFile.delete({ where: { id: fileId } });
+  try {
+    const { del } = await import("@vercel/blob");
+    await del(file.pathname);
+  } catch {
+    // If the blob is already gone or the token isn't configured locally, don't
+    // block the DB delete on it — the row is the source of truth for the UI.
+  }
+  revalidatePath(`/projects/${file.projectId}`);
+}

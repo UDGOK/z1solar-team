@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requirePageAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getSettings } from "@/lib/settings";
 import Navbar from "@/components/Navbar";
 import { fmtMoney } from "@/lib/format";
 
@@ -17,13 +18,14 @@ const CAT_COLOR: Record<string, string> = {
 export default async function DashboardPage() {
   await requirePageAuth();
 
-  const [projects, teamCount] = await Promise.all([
+  const [projects, teamCount, settings] = await Promise.all([
     prisma.project.findMany({
       where: { archived: false },
       include: { lead: true, todos: true },
       orderBy: [{ category: "asc" }, { title: "asc" }],
     }),
     prisma.teamMember.count(),
+    getSettings(),
   ]);
 
   const totalBudget = projects.reduce((s, p) => s + p.estBudget, 0);
@@ -39,9 +41,25 @@ export default async function DashboardPage() {
     <div className="min-h-screen bg-brand-greenTint">
       <Navbar active="/dashboard" />
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
-        <div className="mb-8">
-          <p className="kicker mb-1">[ Z1POWER — WEEKLY OPERATIONS ]</p>
-          <h1 className="font-heading text-3xl font-extrabold text-brand-ink">Dashboard</h1>
+        <div className="mb-8 flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <p className="kicker mb-1">[ Z1POWER — WEEKLY OPERATIONS ]</p>
+            <h1 className="font-heading text-3xl font-extrabold text-brand-ink">Dashboard</h1>
+          </div>
+          {settings.meetingLink ? (
+            <a
+              href={settings.meetingLink}
+              target="_blank"
+              rel="noreferrer"
+              className="btn-primary !px-5 !py-3 text-sm shrink-0"
+            >
+              ▶ Join Weekly Meeting
+            </a>
+          ) : (
+            <a href="/settings" className="btn-secondary text-xs shrink-0">
+              + Add weekly meeting link
+            </a>
+          )}
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-10">

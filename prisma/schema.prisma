@@ -30,6 +30,7 @@ model Project {
   keyDates     KeyDate[]
   todos        Todo[]
   questions    OpenQuestion[]
+  files        ProjectFile[]
 
   // financials
   estBudget    Float           @default(0)
@@ -93,10 +94,23 @@ model OpenQuestion {
   order     Int     @default(0)
 }
 
+model ProjectFile {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  url         String
+  pathname    String // needed to delete the blob later
+  filename    String
+  contentType String?
+  size        Int
+  uploadedAt  DateTime @default(now())
+}
+
 model Settings {
   id           String  @id @default("singleton")
   passwordHash String
   whatsappLink String?
+  meetingLink  String?
   orgName      String  @default("Z1Power")
 }
 

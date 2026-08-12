@@ -2,6 +2,7 @@ import { requirePageAuth } from "@/lib/auth";
 import { getSettings } from "@/lib/settings";
 import Navbar from "@/components/Navbar";
 import WhatsAppLinkForm from "@/components/WhatsAppLinkForm";
+import MeetingLinkForm from "@/components/MeetingLinkForm";
 import ChangePasswordForm from "@/components/ChangePasswordForm";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,7 @@ export default async function SettingsPage() {
           <h1 className="font-heading text-3xl font-extrabold text-brand-ink">Settings</h1>
         </div>
 
+        <MeetingLinkForm initialLink={settings.meetingLink} />
         <WhatsAppLinkForm initialLink={settings.whatsappLink} />
         <ChangePasswordForm />
       </main>
