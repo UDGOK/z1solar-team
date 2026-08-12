@@ -36,6 +36,8 @@ model TeamMember {
   // Module-level access, set by an admin from the Trade Shows page.
   canViewTradeShows   Boolean @default(true)
   canManageTradeShows Boolean @default(false)
+  // Presence. Updated on page loads, throttled so it isn't a write per request.
+  lastSeenAt          DateTime?
   messageReceipts  MessageRecipient[]
   subscriptions ReportSubscription[]
   emailOnTaskAssigned Boolean @default(true)

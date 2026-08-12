@@ -20,6 +20,12 @@ export async function getCurrentMember(): Promise<CurrentMember | null> {
   if (!session?.user?.email) return null;
   const member = await prisma.teamMember.findUnique({ where: { email: session.user.email } });
   if (!member) return null;
+
+  // Record activity. Fire-and-forget and internally throttled, so this adds no
+  // meaningful latency and can't fail the page if the write errors.
+  const { touchPresence } = await import("./presence");
+  void touchPresence(member.id);
+
   return { id: member.id, name: member.name, email: member.email!, role: member.role as "MEMBER" | "ADMIN" };
 }
 

@@ -5,6 +5,7 @@ import Navbar from "@/components/Navbar";
 import AddMemberForm from "@/components/AddMemberForm";
 import TeamMemberRow from "@/components/TeamMemberRow";
 import WhatsAppLinkForm from "@/components/WhatsAppLinkForm";
+import TeamPresence, { PresenceDot } from "@/components/TeamPresence";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,7 @@ export default async function TeamPage() {
                 <th className="px-4 py-3 font-mono text-xs tracking-widest">TITLE</th>
                 <th className="px-4 py-3 font-mono text-xs tracking-widest">EMAIL</th>
                 <th className="px-4 py-3 font-mono text-xs tracking-widest">PHONE</th>
+                <th className="px-4 py-3 font-mono text-xs tracking-widest">LAST SEEN</th>
                 {isAdmin && <th className="px-4 py-3 font-mono text-xs tracking-widest"></th>}
               </tr>
             </thead>
@@ -45,7 +47,7 @@ export default async function TeamPage() {
               ))}
               {members.length === 0 && (
                 <tr>
-                  <td colSpan={isAdmin ? 5 : 4} className="px-4 py-10 text-center text-brand-inkFaint">
+                  <td colSpan={isAdmin ? 6 : 5} className="px-4 py-10 text-center text-brand-inkFaint">
                     No team members yet.
                   </td>
                 </tr>
@@ -55,6 +57,18 @@ export default async function TeamPage() {
         </div>
 
         {isAdmin && <AddMemberForm />}
+
+        {isAdmin && (
+          <TeamPresence
+            members={members.map((m) => ({
+              id: m.id,
+              name: m.name,
+              title: m.title,
+              role: m.role,
+              lastSeenAt: m.lastSeenAt,
+            }))}
+          />
+        )}
 
         <WhatsAppLinkForm initialLink={settings.whatsappLink} />
       </main>

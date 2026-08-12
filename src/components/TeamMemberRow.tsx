@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { updateTeamMember, deleteTeamMember } from "@/lib/actions";
+import { PresenceDot } from "@/components/TeamPresence";
 
-type Member = { id: string; name: string; title: string | null; email: string | null; phone: string | null };
+type Member = { id: string; name: string; title: string | null; email: string | null; phone: string | null; lastSeenAt?: Date | null };
 
 export default function TeamMemberRow({ member, zebra, editable }: { member: Member; zebra: boolean; editable: boolean }) {
   const [editing, setEditing] = useState(false);
@@ -40,6 +41,7 @@ export default function TeamMemberRow({ member, zebra, editable }: { member: Mem
         <td className="px-4 py-2">
           <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" />
         </td>
+        <td className="px-4 py-2"><PresenceDot lastSeenAt={member.lastSeenAt ?? null} showLabel={false} /></td>
         <td className="px-4 py-2 whitespace-nowrap">
           <button onClick={save} disabled={isPending} className="btn-primary text-xs mr-1">
             Save
@@ -58,6 +60,7 @@ export default function TeamMemberRow({ member, zebra, editable }: { member: Mem
       <td className="px-4 py-2 text-brand-greenDark">{member.title || <span className="text-brand-inkFaint italic">— add title —</span>}</td>
       <td className="px-4 py-2">{member.email || <span className="text-brand-inkFaint italic">— add email —</span>}</td>
       <td className="px-4 py-2">{member.phone || <span className="text-brand-inkFaint italic">— add phone —</span>}</td>
+      <td className="px-4 py-2"><PresenceDot lastSeenAt={member.lastSeenAt ?? null} /></td>
       {editable && (
         <td className="px-4 py-2 whitespace-nowrap">
           <button onClick={() => setEditing(true)} className="btn-secondary text-xs mr-1">
