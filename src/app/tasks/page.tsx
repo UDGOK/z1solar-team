@@ -31,11 +31,11 @@ export default async function TasksPage() {
   //   2. every task on any project they can view.
   const tasks = await prisma.todo.findMany({
     where: {
-      OR: [{ assigneeId: me.id }, { projectId: { in: viewableIds } }],
+      OR: [{ assignees: { some: { memberId: me.id } } }, { projectId: { in: viewableIds } }],
     },
     include: {
       project: { select: { id: true, title: true } },
-      assignee: { select: { id: true, name: true } },
+      assignees: { include: { member: { select: { id: true, name: true } } } },
       createdBy: { select: { name: true } },
     },
     orderBy: [{ done: "asc" }, { dueDate: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }],
@@ -46,8 +46,8 @@ export default async function TasksPage() {
     text: t.text,
     done: t.done,
     dueDate: t.dueDate ? t.dueDate.toISOString() : null,
-    assigneeId: t.assigneeId,
-    assigneeName: t.assignee?.name ?? null,
+    assigneeIds: t.assignees.map((a) => a.memberId),
+    assigneeNames: t.assignees.map((a) => a.member.name),
     projectId: t.projectId,
     projectTitle: t.project.title,
     createdByName: t.createdBy?.name ?? null,

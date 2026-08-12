@@ -20,7 +20,7 @@ export default async function EditProjectPage({ params }: { params: Promise<{ id
         members: true,
         talkingPoints: { orderBy: { order: "asc" } },
         keyDates: { orderBy: { order: "asc" } },
-        todos: { orderBy: { order: "asc" } },
+        todos: { orderBy: { order: "asc" }, include: { assignees: true } },
         questions: { orderBy: { order: "asc" } },
       },
     }),

@@ -311,6 +311,31 @@ async function main() {
     if (orphaned.count) console.log(`  Assigned ownership of ${orphaned.count} existing project(s) to ${firstAdmin.name}.`);
   }
 
+  // Migrate legacy single-assignee tasks into the many-to-many table.
+  // Idempotent: skipDuplicates means re-running is harmless.
+  console.log("Migrating task assignees…");
+  const legacy = await prisma.todo.findMany({
+    where: { assigneeId: { not: null } },
+    select: { id: true, assigneeId: true },
+  });
+  if (legacy.length) {
+    // Not using createMany({ skipDuplicates }) — that option is unsupported on
+    // SQLite, and upsert works identically on every provider while keeping the
+    // migration safely re-runnable.
+    let migrated = 0;
+    for (const t of legacy) {
+      const res = await prisma.todoAssignee.upsert({
+        where: { todoId_memberId: { todoId: t.id, memberId: t.assigneeId! } },
+        create: { todoId: t.id, memberId: t.assigneeId! },
+        update: {},
+      });
+      if (res) migrated++;
+    }
+    console.log(`  Migrated ${migrated} of ${legacy.length} task assignment(s) to multi-assignee.`);
+  } else {
+    console.log("  No legacy assignments to migrate.");
+  }
+
   console.log("Done.");
 }
 

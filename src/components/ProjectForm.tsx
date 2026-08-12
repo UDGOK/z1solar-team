@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createProject, updateProject, type ProjectInput } from "@/lib/actions";
 import { toDateInputValue } from "@/lib/format";
 import { ALL_TRUE, type ProjectPermissions } from "@/lib/permissionTypes";
+import AssigneePicker from "./AssigneePicker";
 
 const CATEGORIES = ["Solar & Battery", "Other Projects", "Other Matters", "New Project"];
 const STATUSES = ["Planning", "On Track", "At Risk", "Delayed", "Complete"];
@@ -19,7 +20,7 @@ type InitialData = {
   members: { memberId: string; role: string | null; tasks: string | null }[];
   talkingPoints: { text: string }[];
   keyDates: { milestone: string; date: Date | string | null }[];
-  todos: { text: string; done: boolean; assigneeId?: string | null; dueDate?: Date | string | null }[];
+  todos: { text: string; done: boolean; assignees?: { memberId: string }[]; dueDate?: Date | string | null }[];
   questions: { text: string; resolved: boolean }[];
   estBudget: number;
   committed: number;
@@ -70,12 +71,12 @@ export default function ProjectForm({
     initial?.todos.map((t) => ({
       text: t.text,
       done: t.done,
-      assigneeId: t.assigneeId || "",
+      assigneeIds: (t.assignees || []).map((a) => a.memberId),
       dueDate: toDateInputValue(t.dueDate ?? null),
     })) || [
-      { text: "", done: false, assigneeId: "", dueDate: "" },
-      { text: "", done: false, assigneeId: "", dueDate: "" },
-      { text: "", done: false, assigneeId: "", dueDate: "" },
+      { text: "", done: false, assigneeIds: [] as string[], dueDate: "" },
+      { text: "", done: false, assigneeIds: [] as string[], dueDate: "" },
+      { text: "", done: false, assigneeIds: [] as string[], dueDate: "" },
     ]
   );
   const [questions, setQuestions] = useState(
@@ -116,7 +117,7 @@ export default function ProjectForm({
       members,
       talkingPoints,
       keyDates,
-      todos: todos.map((t) => ({ text: t.text, done: t.done, assigneeId: t.assigneeId || null, dueDate: t.dueDate || null })),
+      todos: todos.map((t) => ({ text: t.text, done: t.done, assigneeIds: t.assigneeIds, dueDate: t.dueDate || null })),
       questions,
       estBudget: Number(estBudget) || 0,
       committed: Number(committed) || 0,
@@ -314,18 +315,12 @@ export default function ProjectForm({
                 <div className="grid grid-cols-2 gap-2 pl-6">
                   <div>
                     <label className="label !text-[10px]">Assign to</label>
-                    <select
-                      className="input !py-1 text-xs"
-                      value={t.assigneeId}
-                      onChange={(e) => todosOps.update(i, { ...t, assigneeId: e.target.value })}
-                    >
-                      <option value="">— unassigned —</option>
-                      {teamMembers.map((tm) => (
-                        <option key={tm.id} value={tm.id}>
-                          {tm.name}
-                        </option>
-                      ))}
-                    </select>
+                    <AssigneePicker
+                      teamMembers={teamMembers}
+                      selected={t.assigneeIds}
+                      onChange={(ids) => todosOps.update(i, { ...t, assigneeIds: ids })}
+                      compact
+                    />
                   </div>
                   <div>
                     <label className="label !text-[10px]">Due date</label>
@@ -342,7 +337,7 @@ export default function ProjectForm({
           </div>
           <AddBtn
             label="+ Add action item"
-            onClick={() => setTodos([...todos, { text: "", done: false, assigneeId: "", dueDate: "" }])}
+            onClick={() => setTodos([...todos, { text: "", done: false, assigneeIds: [], dueDate: "" }])}
           />
         </section>
         )}

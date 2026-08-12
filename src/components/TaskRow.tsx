@@ -3,14 +3,15 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { updateTask, deleteTask } from "@/lib/actions";
+import AssigneePicker from "./AssigneePicker";
 
 export type TaskRowData = {
   id: string;
   text: string;
   done: boolean;
   dueDate: string | null;
-  assigneeId: string | null;
-  assigneeName: string | null;
+  assigneeIds: string[];
+  assigneeNames: string[];
   projectId: string;
   projectTitle: string;
   createdByName: string | null;
@@ -51,7 +52,7 @@ export default function TaskRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(task.text);
-  const [assigneeId, setAssigneeId] = useState(task.assigneeId || "");
+  const [assigneeIds, setAssigneeIds] = useState<string[]>(task.assigneeIds);
   const [dueDate, setDueDate] = useState(task.dueDate ? task.dueDate.slice(0, 10) : "");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -73,11 +74,7 @@ export default function TaskRow({
     setError(null);
     startTransition(async () => {
       try {
-        await updateTask(task.id, {
-          text,
-          assigneeId: assigneeId || null,
-          dueDate: dueDate || null,
-        });
+        await updateTask(task.id, { text, assigneeIds, dueDate: dueDate || null });
         setEditing(false);
       } catch (e: any) {
         setError(e?.message || "Couldn't save.");
@@ -103,12 +100,7 @@ export default function TaskRow({
         <div className="grid sm:grid-cols-2 gap-2">
           <div>
             <label className="label !text-[10px]">Assign to</label>
-            <select className="input text-xs" value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
-              <option value="">— unassigned —</option>
-              {teamMembers.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
+            <AssigneePicker teamMembers={teamMembers} selected={assigneeIds} onChange={setAssigneeIds} compact />
           </div>
           <div>
             <label className="label !text-[10px]">Due date</label>
@@ -146,10 +138,12 @@ export default function TaskRow({
             {task.text}
           </p>
           <div className="flex items-center gap-2 mt-1 flex-wrap text-[11px]">
-            {task.assigneeName ? (
-              <span className="px-1.5 py-0.5 rounded bg-brand-greenTint text-brand-greenDark font-semibold">
-                {task.assigneeName}
-              </span>
+            {task.assigneeNames.length > 0 ? (
+              task.assigneeNames.map((n) => (
+                <span key={n} className="px-1.5 py-0.5 rounded bg-brand-greenTint text-brand-greenDark font-semibold">
+                  {n}
+                </span>
+              ))
             ) : (
               <span className="px-1.5 py-0.5 rounded bg-brand-greenTint text-brand-inkFaint italic">
                 unassigned

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { createTask } from "@/lib/actions";
+import AssigneePicker from "./AssigneePicker";
 
 type Option = { id: string; name?: string; title?: string };
 
@@ -17,7 +18,7 @@ export default function NewTaskForm({
   const [open, setOpen] = useState(false);
   const [projectId, setProjectId] = useState(defaultProjectId || projects[0]?.id || "");
   const [text, setText] = useState("");
-  const [assigneeId, setAssigneeId] = useState("");
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -31,9 +32,9 @@ export default function NewTaskForm({
     }
     startTransition(async () => {
       try {
-        await createTask({ projectId, text, assigneeId: assigneeId || null, dueDate: dueDate || null });
+        await createTask({ projectId, text, assigneeIds, dueDate: dueDate || null });
         setText("");
-        setAssigneeId("");
+        setAssigneeIds([]);
         setDueDate("");
         setOpen(false);
       } catch (err: any) {
@@ -84,14 +85,7 @@ export default function NewTaskForm({
         </div>
         <div>
           <label className="label">Assign to</label>
-          <select className="input" value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
-            <option value="">— unassigned —</option>
-            {teamMembers.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
+          <AssigneePicker teamMembers={teamMembers} selected={assigneeIds} onChange={setAssigneeIds} />
         </div>
         <div>
           <label className="label">Due date</label>
@@ -99,7 +93,7 @@ export default function NewTaskForm({
         </div>
       </div>
       <p className="text-[11px] text-brand-inkFaint">
-        Anyone on the team can be assigned — they don&rsquo;t need access to the rest of the project.
+        Assign as many people as you like — they don&rsquo;t need access to the rest of the project.
       </p>
       {error && <p className="text-sm text-red-600">{error}</p>}
       <div className="flex gap-2">

@@ -109,7 +109,7 @@ export type ProjectInput = {
   members: { memberId: string; role?: string; tasks?: string }[];
   talkingPoints: string[];
   keyDates: { milestone: string; date: string | null }[];
-  todos: { text: string; done: boolean; assigneeId: string | null; dueDate: string | null }[];
+  todos: { text: string; done: boolean; assigneeIds: string[]; dueDate: string | null }[];
   questions: { text: string; resolved: boolean }[];
   estBudget: number;
   committed: number;
@@ -170,8 +170,8 @@ export async function createProject(data: ProjectInput) {
             text: t.text,
             done: t.done,
             order,
-            assigneeId: t.assigneeId || null,
             dueDate: t.dueDate ? new Date(t.dueDate) : null,
+            assignees: { create: Array.from(new Set(t.assigneeIds.filter(Boolean))).map((memberId) => ({ memberId })) },
           })),
       },
       questions: {
@@ -205,7 +205,7 @@ export async function updateProject(id: string, data: ProjectInput) {
     include: {
       talkingPoints: { orderBy: { order: "asc" } },
       keyDates: { orderBy: { order: "asc" } },
-      todos: { orderBy: { order: "asc" } },
+      todos: { orderBy: { order: "asc" }, include: { assignees: true } },
       questions: { orderBy: { order: "asc" } },
       members: true,
     },
@@ -265,15 +265,15 @@ export async function updateProject(id: string, data: ProjectInput) {
           text: t.text,
           done: t.done,
           order,
-          assigneeId: t.assigneeId || null,
           dueDate: t.dueDate ? new Date(t.dueDate) : null,
+          assignees: { create: Array.from(new Set(t.assigneeIds.filter(Boolean))).map((memberId) => ({ memberId })) },
         }))
     : existing.todos.map((t, order) => ({
         text: t.text,
         done: t.done,
         order,
-        assigneeId: t.assigneeId,
         dueDate: t.dueDate,
+        assignees: { create: t.assignees.map((a) => ({ memberId: a.memberId })) },
       }));
 
   const questions = perms.canEditQuestions
@@ -327,10 +327,13 @@ export async function deleteProject(id: string) {
  */
 export async function toggleTodo(todoId: string, done: boolean) {
   const member = await requireAuth();
-  const todo = await prisma.todo.findUnique({ where: { id: todoId }, select: { projectId: true, assigneeId: true } });
+  const todo = await prisma.todo.findUnique({
+    where: { id: todoId },
+    select: { projectId: true, assignees: { select: { memberId: true } } },
+  });
   if (!todo) throw new Error("Task not found.");
   const perms = await getProjectPermissions(member, todo.projectId);
-  const isAssignee = todo.assigneeId === member.id;
+  const isAssignee = todo.assignees.some((a) => a.memberId === member.id);
   if (!perms.canView) throw new Error("You don't have access to this project.");
   if (!perms.canEditTodos && !isAssignee) throw new Error("You can't change this task.");
 
@@ -583,6 +586,44 @@ async function appUrl(): Promise<string> {
   return host ? `${proto}://${host}` : process.env.NEXTAUTH_URL || "";
 }
 
+/** Notifies a set of assignees in-app and by email. Never throws. */
+async function notifyAssignees(opts: {
+  memberIds: string[];
+  actorId: string;
+  actorName: string;
+  taskText: string;
+  projectTitle: string;
+  dueDate: Date | null;
+  verb: string;
+}) {
+  const targets = Array.from(new Set(opts.memberIds)).filter((id) => id && id !== opts.actorId);
+  if (targets.length === 0) return;
+  try {
+    await prisma.notification.createMany({
+      data: targets.map((recipientId) => ({
+        recipientId,
+        type: "TASK_ASSIGNED",
+        title: `${opts.verb} by ${opts.actorName}`,
+        body: `${opts.taskText} — ${opts.projectTitle}`,
+        link: "/tasks",
+      })),
+    });
+  } catch (e) {
+    console.error("[task notify] failed:", e);
+  }
+  await Promise.all(
+    targets.map((id) =>
+      notifyAssigneeByEmail({
+        assigneeId: id,
+        assignerName: opts.actorName,
+        taskText: opts.taskText,
+        projectTitle: opts.projectTitle,
+        dueDate: opts.dueDate,
+      })
+    )
+  );
+}
+
 /** Fire-and-forget task email. Never blocks or fails the calling action. */
 async function notifyAssigneeByEmail(opts: {
   assigneeId: string;
@@ -621,7 +662,7 @@ async function notifyAssigneeByEmail(opts: {
 export async function createTask(data: {
   projectId: string;
   text: string;
-  assigneeId: string | null;
+  assigneeIds: string[];
   dueDate: string | null;
 }) {
   const me = await requireAuth();
@@ -640,40 +681,32 @@ export async function createTask(data: {
     data: {
       projectId: data.projectId,
       text: data.text.trim(),
-      assigneeId: data.assigneeId || null,
       dueDate: data.dueDate ? new Date(data.dueDate) : null,
       createdById: me.id,
       order: (maxOrder._max.order ?? -1) + 1,
+      assignees: {
+        create: Array.from(new Set(data.assigneeIds.filter(Boolean))).map((memberId) => ({ memberId })),
+      },
     },
-    include: { project: { select: { title: true } } },
+    include: { project: { select: { title: true } }, assignees: true },
   });
 
-  // Notify the assignee (unless they assigned it to themselves).
-  if (todo.assigneeId && todo.assigneeId !== me.id) {
-    await prisma.notification.create({
-      data: {
-        recipientId: todo.assigneeId,
-        type: "TASK_ASSIGNED",
-        title: `New task from ${me.name}`,
-        body: `${todo.text} — ${todo.project.title}`,
-        link: `/tasks`,
-      },
-    });
-    await notifyAssigneeByEmail({
-      assigneeId: todo.assigneeId,
-      assignerName: me.name,
-      taskText: todo.text,
-      projectTitle: todo.project.title,
-      dueDate: todo.dueDate,
-    });
-  }
+  await notifyAssignees({
+    memberIds: todo.assignees.map((a) => a.memberId),
+    actorId: me.id,
+    actorName: me.name,
+    taskText: todo.text,
+    projectTitle: todo.project.title,
+    dueDate: todo.dueDate,
+    verb: "New task",
+  });
 
   await logActivity({
     projectId: data.projectId,
     actor: me,
     action: "task.created",
-    summary: `Created task "${todo.text.slice(0, 80)}"${todo.assigneeId ? "" : " (unassigned)"}`,
-    meta: { todoId: todo.id, assigneeId: todo.assigneeId },
+    summary: `Created task "${todo.text.slice(0, 80)}"${todo.assignees.length ? ` (${todo.assignees.length} assigned)` : " (unassigned)"}`,
+    meta: { todoId: todo.id, assigneeIds: todo.assignees.map((a) => a.memberId) },
   });
 
   revalidatePath("/tasks");
@@ -682,37 +715,35 @@ export async function createTask(data: {
   return { ok: true };
 }
 
-/** Reassign an existing task, notifying the new assignee. */
-export async function reassignTask(todoId: string, assigneeId: string | null) {
+/** Replace a task's assignee list. Notifies anyone newly added. */
+export async function setTaskAssignees(todoId: string, assigneeIds: string[]) {
   const me = await requireAuth();
   const todo = await prisma.todo.findUnique({
     where: { id: todoId },
-    include: { project: { select: { title: true } } },
+    include: { project: { select: { title: true } }, assignees: true },
   });
   if (!todo) throw new Error("Task not found.");
   const perms = await getProjectPermissions(me, todo.projectId);
   if (!perms.canEditTodos) throw new Error("You can't reassign tasks on this project.");
 
-  await prisma.todo.update({ where: { id: todoId }, data: { assigneeId: assigneeId || null } });
+  const next = Array.from(new Set(assigneeIds.filter(Boolean)));
+  const previous = new Set(todo.assignees.map((a) => a.memberId));
+  const added = next.filter((id) => !previous.has(id));
 
-  if (assigneeId && assigneeId !== me.id && assigneeId !== todo.assigneeId) {
-    await prisma.notification.create({
-      data: {
-        recipientId: assigneeId,
-        type: "TASK_ASSIGNED",
-        title: `Task assigned to you by ${me.name}`,
-        body: `${todo.text} — ${todo.project.title}`,
-        link: `/tasks`,
-      },
-    });
-    await notifyAssigneeByEmail({
-      assigneeId,
-      assignerName: me.name,
-      taskText: todo.text,
-      projectTitle: todo.project.title,
-      dueDate: todo.dueDate,
-    });
-  }
+  await prisma.$transaction([
+    prisma.todoAssignee.deleteMany({ where: { todoId } }),
+    ...(next.length ? [prisma.todoAssignee.createMany({ data: next.map((memberId) => ({ todoId, memberId })) })] : []),
+  ]);
+
+  await notifyAssignees({
+    memberIds: added,
+    actorId: me.id,
+    actorName: me.name,
+    taskText: todo.text,
+    projectTitle: todo.project.title,
+    dueDate: todo.dueDate,
+    verb: "Task assigned to you",
+  });
 
   revalidatePath("/tasks");
   revalidatePath(`/projects/${todo.projectId}`);
@@ -1187,23 +1218,23 @@ export async function getPendingAlerts() {
  */
 export async function updateTask(
   todoId: string,
-  data: { text?: string; assigneeId?: string | null; dueDate?: string | null; done?: boolean }
+  data: { text?: string; assigneeIds?: string[]; dueDate?: string | null; done?: boolean }
 ) {
   const me = await requireAuth();
   const todo = await prisma.todo.findUnique({
     where: { id: todoId },
-    include: { project: { select: { id: true, title: true } } },
+    include: { project: { select: { id: true, title: true } }, assignees: true },
   });
   if (!todo) throw new Error("Task not found.");
 
   const perms = await getProjectPermissions(me, todo.projectId);
-  const isAssignee = todo.assigneeId === me.id;
+  const isAssignee = todo.assignees.some((a) => a.memberId === me.id);
 
   // Only changing `done`? Assignee is allowed even without edit rights.
   const onlyToggling =
     data.done !== undefined &&
     data.text === undefined &&
-    data.assigneeId === undefined &&
+    data.assigneeIds === undefined &&
     data.dueDate === undefined;
 
   if (onlyToggling) {
@@ -1212,38 +1243,33 @@ export async function updateTask(
     throw new Error("You don't have permission to edit tasks on this project.");
   }
 
-  const reassigned =
-    data.assigneeId !== undefined && data.assigneeId !== todo.assigneeId && !!data.assigneeId;
+  const previous = new Set(todo.assignees.map((a) => a.memberId));
+  const nextIds = data.assigneeIds ? Array.from(new Set(data.assigneeIds.filter(Boolean))) : null;
+  const added = nextIds ? nextIds.filter((id) => !previous.has(id)) : [];
+  const reassigned = added.length > 0;
 
   await prisma.todo.update({
     where: { id: todoId },
     data: {
       ...(data.text !== undefined ? { text: data.text.trim() } : {}),
-      ...(data.assigneeId !== undefined ? { assigneeId: data.assigneeId || null } : {}),
+
       ...(data.dueDate !== undefined ? { dueDate: data.dueDate ? new Date(data.dueDate) : null } : {}),
       ...(data.done !== undefined ? { done: data.done } : {}),
+      ...(nextIds
+        ? { assignees: { deleteMany: {}, create: nextIds.map((memberId) => ({ memberId })) } }
+        : {}),
     },
   });
 
-  // Tell the new owner they've picked up work.
-  if (reassigned && data.assigneeId !== me.id) {
-    await prisma.notification.create({
-      data: {
-        recipientId: data.assigneeId!,
-        type: "TASK_ASSIGNED",
-        title: `Task assigned to you by ${me.name}`,
-        body: `${data.text ?? todo.text} — ${todo.project.title}`,
-        link: "/tasks",
-      },
-    });
-    await notifyAssigneeByEmail({
-      assigneeId: data.assigneeId!,
-      assignerName: me.name,
-      taskText: data.text ?? todo.text,
-      projectTitle: todo.project.title,
-      dueDate: data.dueDate !== undefined ? (data.dueDate ? new Date(data.dueDate) : null) : todo.dueDate,
-    });
-  }
+  await notifyAssignees({
+    memberIds: added,
+    actorId: me.id,
+    actorName: me.name,
+    taskText: data.text ?? todo.text,
+    projectTitle: todo.project.title,
+    dueDate: data.dueDate !== undefined ? (data.dueDate ? new Date(data.dueDate) : null) : todo.dueDate,
+    verb: "Task assigned to you",
+  });
 
   if (data.done !== undefined && data.done !== todo.done) {
     await logActivity({
@@ -1262,7 +1288,7 @@ export async function updateTask(
       summary: reassigned
         ? `Reassigned "${(data.text ?? todo.text).slice(0, 60)}"`
         : `Edited task "${(data.text ?? todo.text).slice(0, 60)}"`,
-      meta: { todoId: todo.id, assigneeId: data.assigneeId },
+      meta: { todoId: todo.id, assigneeIds: nextIds },
     });
   }
 
@@ -1406,7 +1432,11 @@ export async function deleteSavedView(id: string) {
  */
 export async function bulkUpdateTasks(
   todoIds: string[],
-  action: { type: "assign"; assigneeId: string | null } | { type: "due"; dueDate: string | null } | { type: "complete"; done: boolean } | { type: "delete" }
+  action:
+    | { type: "assign"; assigneeIds: string[]; mode: "replace" | "add" }
+    | { type: "due"; dueDate: string | null }
+    | { type: "complete"; done: boolean }
+    | { type: "delete" }
 ): Promise<{ updated: number; skipped: number }> {
   const me = await requireAuth();
   if (todoIds.length === 0) return { updated: 0, skipped: 0 };
@@ -1422,7 +1452,7 @@ export async function bulkUpdateTasks(
 
   for (const t of todos) {
     const perms = await getProjectPermissions(me, t.projectId);
-    const isAssignee = t.assigneeId === me.id;
+    const isAssignee = false; // recomputed below only where needed
     const allowed = action.type === "complete" ? perms.canEditTodos || isAssignee : perms.canEditTodos;
     if (!allowed) {
       skipped++;
@@ -1432,18 +1462,26 @@ export async function bulkUpdateTasks(
     if (action.type === "delete") {
       await prisma.todo.delete({ where: { id: t.id } });
     } else if (action.type === "assign") {
-      await prisma.todo.update({ where: { id: t.id }, data: { assigneeId: action.assigneeId || null } });
-      if (action.assigneeId && action.assigneeId !== me.id) {
-        await prisma.notification.create({
-          data: {
-            recipientId: action.assigneeId,
-            type: "TASK_ASSIGNED",
-            title: `Task assigned to you by ${me.name}`,
-            body: `${t.text} — ${t.project.title}`,
-            link: "/tasks",
-          },
-        });
+      const ids = Array.from(new Set(action.assigneeIds.filter(Boolean)));
+      if (action.mode === "replace") {
+        await prisma.todoAssignee.deleteMany({ where: { todoId: t.id } });
       }
+      if (ids.length) {
+        // upsert rather than createMany({skipDuplicates}) — that option isn't
+        // supported on every Prisma provider, and "add" mode may hit existing rows.
+        for (const memberId of ids) {
+          await prisma.todoAssignee.upsert({
+            where: { todoId_memberId: { todoId: t.id, memberId } },
+            create: { todoId: t.id, memberId },
+            update: {},
+          });
+        }
+      }
+      await notifyAssignees({
+        memberIds: ids, actorId: me.id, actorName: me.name,
+        taskText: t.text, projectTitle: t.project.title, dueDate: t.dueDate,
+        verb: "Task assigned to you",
+      });
     } else if (action.type === "due") {
       await prisma.todo.update({
         where: { id: t.id },

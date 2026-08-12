@@ -48,7 +48,7 @@ export async function buildProjectReportHtml(
     where: { id: projectId },
     include: {
       lead: { select: { name: true } },
-      todos: { include: { assignee: { select: { name: true } } }, orderBy: { order: "asc" } },
+      todos: { include: { assignees: { include: { member: { select: { name: true } } } } }, orderBy: { order: "asc" } },
       keyDates: { orderBy: { order: "asc" } },
       questions: { orderBy: { order: "asc" } },
     },
@@ -89,7 +89,7 @@ export async function buildProjectReportHtml(
             .map((t) => {
               const overdue = t.dueDate && t.dueDate < now;
               const meta = [
-                t.assignee?.name ? escapeHtml(t.assignee.name) : "unassigned",
+                t.assignees.length ? escapeHtml(t.assignees.map((a) => a.member.name).join(", ")) : "unassigned",
                 t.dueDate
                   ? `${overdue ? "OVERDUE " : "due "}${t.dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
                   : null,

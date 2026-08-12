@@ -47,7 +47,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
       members: { include: { member: true } },
       talkingPoints: { orderBy: { order: "asc" } },
       keyDates: { orderBy: { order: "asc" } },
-      todos: { orderBy: { order: "asc" }, include: { assignee: { select: { id: true, name: true } } } },
+      todos: { orderBy: { order: "asc" }, include: { assignees: { include: { member: { select: { id: true, name: true } } } } } },
       questions: { orderBy: { order: "asc" } },
       files: { orderBy: { uploadedAt: "desc" } },
       rebates: { orderBy: { order: "asc" } },
@@ -201,7 +201,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
               <p className="kicker mb-2">To-Do</p>
               <div>
                 {project.todos.map((t) => {
-                  const canTick = perms.canEditTodos || t.assigneeId === member.id;
+                  const canTick = perms.canEditTodos || t.assignees.some((a) => a.memberId === member.id);
                   return (
                     <div key={t.id} className="flex items-start justify-between gap-2">
                       {canTick ? (
@@ -211,9 +211,13 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                           {t.text}
                         </span>
                       )}
-                      {t.assignee && (
-                        <span className="shrink-0 mt-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-white border border-brand-line text-brand-inkSoft">
-                          {t.assignee.name}
+                      {t.assignees.length > 0 && (
+                        <span className="shrink-0 mt-1 flex flex-wrap gap-1 justify-end">
+                          {t.assignees.map((a) => (
+                            <span key={a.id} className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-white border border-brand-line text-brand-inkSoft">
+                              {a.member.name}
+                            </span>
+                          ))}
                         </span>
                       )}
                     </div>

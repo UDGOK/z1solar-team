@@ -40,8 +40,8 @@ export default function TasksHub({
 
   const editable = useMemo(() => new Set(canEditProjectIds), [canEditProjectIds]);
 
-  const mine = tasks.filter((t) => t.assigneeId === currentMemberId);
-  const assignedByMe = tasks.filter((t) => t.assigneeId !== currentMemberId);
+  const mine = tasks.filter((t) => t.assigneeIds.includes(currentMemberId));
+  const assignedByMe = tasks.filter((t) => !t.assigneeIds.includes(currentMemberId));
 
   const base = view === "mine" ? mine : view === "assigned" ? assignedByMe : tasks;
 
@@ -50,7 +50,11 @@ export default function TasksHub({
       .filter((t) => (showDone ? true : !t.done))
       .filter((t) => (filterProject ? t.projectId === filterProject : true))
       .filter((t) =>
-        filterAssignee ? (filterAssignee === "__none" ? !t.assigneeId : t.assigneeId === filterAssignee) : true
+        filterAssignee
+          ? filterAssignee === "__none"
+            ? t.assigneeIds.length === 0
+            : t.assigneeIds.includes(filterAssignee)
+          : true
       )
       .filter((t) => {
         if (!onlyOverdue) return true;
@@ -69,7 +73,7 @@ export default function TasksHub({
     mineOverdue: mine.filter(isOverdue).length,
     allOpen: tasks.filter((t) => !t.done).length,
     allOverdue: tasks.filter(isOverdue).length,
-    unassigned: tasks.filter((t) => !t.done && !t.assigneeId).length,
+    unassigned: tasks.filter((t) => !t.done && t.assigneeIds.length === 0).length,
   };
 
   // Workload view — who's carrying what.
@@ -78,13 +82,16 @@ export default function TasksHub({
     for (const m of teamMembers) map.set(m.id, { name: m.name, open: 0, overdue: 0, done: 0 });
     map.set("__none", { name: "Unassigned", open: 0, overdue: 0, done: 0 });
     for (const t of tasks) {
-      const key = t.assigneeId || "__none";
-      const row = map.get(key);
-      if (!row) continue;
-      if (t.done) row.done++;
-      else {
-        row.open++;
-        if (isOverdue(t)) row.overdue++;
+      // A task with several assignees counts toward each of their workloads.
+      const keys = t.assigneeIds.length ? t.assigneeIds : ["__none"];
+      for (const key of keys) {
+        const row = map.get(key);
+        if (!row) continue;
+        if (t.done) row.done++;
+        else {
+          row.open++;
+          if (isOverdue(t)) row.overdue++;
+        }
       }
     }
     return Array.from(map.entries())
@@ -313,10 +320,16 @@ export default function TasksHub({
                   <select
                     className="input !py-1 text-xs !w-auto"
                     defaultValue=""
-                    onChange={(e) => { if (e.target.value) { runBulk({ type: "assign", assigneeId: e.target.value === "__none" ? null : e.target.value }); e.target.value = ""; } }}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (!v) return;
+                      if (v === "__none") runBulk({ type: "assign", assigneeIds: [], mode: "replace" });
+                      else runBulk({ type: "assign", assigneeIds: [v], mode: "add" });
+                      e.target.value = "";
+                    }}
                   >
-                    <option value="">Reassign to…</option>
-                    <option value="__none">Unassign</option>
+                    <option value="">Add assignee…</option>
+                    <option value="__none">Clear all assignees</option>
                     {teamMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
                   </select>
                   <input
