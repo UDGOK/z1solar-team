@@ -443,3 +443,90 @@ export async function generateShareableSummaryLink(projectId: string): Promise<{
 
   return { url: blob.url };
 }
+
+// ---------- Email + password invites ----------
+
+/**
+ * Admin generates a one-time invite link. The person sets their own password
+ * through it — admins never see or choose someone else's password.
+ * Token is valid for 7 days and is cleared once used.
+ */
+export async function generateInviteLink(memberId: string): Promise<{ url: string }> {
+  await requireAdmin();
+  const member = await prisma.teamMember.findUnique({ where: { id: memberId } });
+  if (!member) throw new Error("Team member not found.");
+  if (!member.email) throw new Error("Add an email for this person first — that's what they'll sign in with.");
+
+  const crypto = await import("crypto");
+  const token = crypto.randomBytes(32).toString("hex");
+  const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+  await prisma.teamMember.update({
+    where: { id: memberId },
+    data: { inviteToken: token, inviteTokenExpires: expires },
+  });
+
+  const base = process.env.NEXTAUTH_URL || "";
+  revalidatePath("/team");
+  return { url: `${base}/set-password?token=${token}` };
+}
+
+/** Admin revokes email/password access — the person can still use Google if they have it. */
+export async function clearPassword(memberId: string) {
+  await requireAdmin();
+  await prisma.teamMember.update({
+    where: { id: memberId },
+    data: { passwordHash: null, inviteToken: null, inviteTokenExpires: null },
+  });
+  revalidatePath("/team");
+}
+
+/** Called from the /set-password page by the invited person themselves. */
+export async function setPasswordFromInvite(
+  token: string,
+  password: string
+): Promise<{ ok: boolean; error?: string }> {
+  if (!token) return { ok: false, error: "Missing invite token." };
+  if (!password || password.length < 8) {
+    return { ok: false, error: "Password must be at least 8 characters." };
+  }
+
+  const member = await prisma.teamMember.findUnique({ where: { inviteToken: token } });
+  if (!member) return { ok: false, error: "This invite link is not valid." };
+  if (!member.inviteTokenExpires || member.inviteTokenExpires < new Date()) {
+    return { ok: false, error: "This invite link has expired. Ask an admin to send a new one." };
+  }
+
+  const bcrypt = (await import("bcryptjs")).default;
+  const passwordHash = await bcrypt.hash(password, 10);
+  await prisma.teamMember.update({
+    where: { id: member.id },
+    // Token is single-use — cleared as soon as the password is set.
+    data: { passwordHash, inviteToken: null, inviteTokenExpires: null },
+  });
+  return { ok: true };
+}
+
+/** A signed-in person changing their own password. */
+export async function changeOwnPassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<{ ok: boolean; error?: string }> {
+  const me = await requireAuth();
+  if (!newPassword || newPassword.length < 8) {
+    return { ok: false, error: "New password must be at least 8 characters." };
+  }
+  const member = await prisma.teamMember.findUnique({ where: { id: me.id } });
+  if (!member) return { ok: false, error: "Account not found." };
+
+  const bcrypt = (await import("bcryptjs")).default;
+  // Someone who signed up via Google has no password yet — let them set one
+  // without needing a "current password" they never had.
+  if (member.passwordHash) {
+    const valid = await bcrypt.compare(currentPassword, member.passwordHash);
+    if (!valid) return { ok: false, error: "Current password is incorrect." };
+  }
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await prisma.teamMember.update({ where: { id: member.id }, data: { passwordHash } });
+  return { ok: true };
+}

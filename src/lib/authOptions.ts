@@ -1,5 +1,7 @@
 import type { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
+import CredentialsProvider from "next-auth/providers/credentials";
+import bcrypt from "bcryptjs";
 import { prisma } from "./prisma";
 
 function requiredEnv(name: string): string {
@@ -14,6 +16,24 @@ export const authOptions: NextAuthOptions = {
       clientId: requiredEnv("GOOGLE_CLIENT_ID"),
       clientSecret: requiredEnv("GOOGLE_CLIENT_SECRET"),
     }),
+    CredentialsProvider({
+      name: "Email and password",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
+      },
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) return null;
+        const member = await prisma.teamMember.findUnique({
+          where: { email: credentials.email.trim().toLowerCase() },
+        });
+        // No account, or account has no password set yet (Google-only user)
+        if (!member?.passwordHash) return null;
+        const valid = await bcrypt.compare(credentials.password, member.passwordHash);
+        if (!valid) return null;
+        return { id: member.id, email: member.email!, name: member.name };
+      },
+    }),
   ],
   session: { strategy: "jwt" },
   pages: {
@@ -21,19 +41,18 @@ export const authOptions: NextAuthOptions = {
     error: "/login",
   },
   callbacks: {
-    // Only let someone in if their Google email matches an existing TeamMember.
-    // This is the entire "allowlist" — there's no separate account-creation
-    // step; an admin adds people to the Team Directory, and that's what
-    // grants them the ability to sign in at all.
-    async signIn({ user }) {
+    // Google sign-ins must match an existing TeamMember — this is the
+    // allowlist. Credentials sign-ins already proved themselves in
+    // authorize() above, so they pass straight through.
+    async signIn({ user, account }) {
+      if (account?.provider === "credentials") return true;
       if (!user.email) return false;
-      const member = await prisma.teamMember.findUnique({ where: { email: user.email } });
+      const member = await prisma.teamMember.findUnique({ where: { email: user.email.toLowerCase() } });
       return !!member;
     },
-    // Keep the JWT minimal — just identity. Role and permissions are looked
-    // up fresh from the database on every request (see lib/auth.ts), so a
-    // permission change by an admin takes effect immediately, not just on
-    // the next login.
+    // JWT stays minimal — identity only. Role and permissions are looked up
+    // fresh from the database on every request (see lib/auth.ts), so an
+    // admin's permission change takes effect immediately.
     async jwt({ token, user }) {
       if (user?.email) token.email = user.email;
       return token;

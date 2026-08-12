@@ -1,22 +1,43 @@
 "use client";
 
-import { Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 
 const ERROR_MESSAGES: Record<string, string> = {
   AccessDenied:
-    "That Google account isn't on the Z1Power team list. Ask an admin to add your email in Team Directory first.",
+    "That Google account isn't on the Z1Power team list. Ask an admin to add your email first.",
+  CredentialsSignin: "Incorrect email or password.",
   Default: "Something went wrong signing in. Try again.",
 };
 
 function LoginCard() {
   const params = useSearchParams();
+  const router = useRouter();
   const errorCode = params.get("error");
-  const error = errorCode ? ERROR_MESSAGES[errorCode] || ERROR_MESSAGES.Default : null;
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(
+    errorCode ? ERROR_MESSAGES[errorCode] || ERROR_MESSAGES.Default : null
+  );
+  const [loading, setLoading] = useState(false);
+
+  async function handleCredentials(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    const res = await signIn("credentials", { email, password, redirect: false });
+    setLoading(false);
+    if (res?.error) {
+      setError(ERROR_MESSAGES.CredentialsSignin);
+    } else {
+      router.push("/dashboard");
+      router.refresh();
+    }
+  }
 
   return (
-    <div className="card p-6 bg-white">
+    <div className="card p-6 bg-white space-y-5">
       <button
         type="button"
         onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
@@ -30,25 +51,58 @@ function LoginCard() {
         </svg>
         Sign in with Google
       </button>
-      {error && <p className="text-sm text-red-600 mt-4">{error}</p>}
+
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-px bg-brand-line" />
+        <span className="text-[11px] font-mono tracking-widest text-brand-inkFaint">OR</span>
+        <div className="flex-1 h-px bg-brand-line" />
+      </div>
+
+      <form onSubmit={handleCredentials} className="space-y-3 text-left">
+        <div>
+          <label className="label">Email</label>
+          <input
+            type="email"
+            className="input"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@company.com"
+          />
+        </div>
+        <div>
+          <label className="label">Password</label>
+          <input
+            type="password"
+            className="input"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+          />
+        </div>
+        <button type="submit" disabled={loading} className="btn-primary w-full">
+          {loading ? "Signing in…" : "Sign In"}
+        </button>
+      </form>
+
+      {error && <p className="text-sm text-red-600">{error}</p>}
     </div>
   );
 }
 
 export default function LoginPage() {
   return (
-    <main className="min-h-screen flex items-center justify-center bg-brand-greenTint px-4">
+    <main className="min-h-screen flex items-center justify-center bg-brand-greenTint px-4 py-10">
       <div className="w-full max-w-sm text-center">
         <img src="/logo.png" alt="Z1Power" className="h-10 w-auto mx-auto mb-4" />
         <p className="kicker mb-2">[ Z1POWER — TEAM HUB ]</p>
         <h1 className="font-heading text-4xl font-extrabold text-brand-ink mb-8">Sign In</h1>
 
-        <Suspense fallback={<div className="card p-6 bg-white h-[68px]" />}>
+        <Suspense fallback={<div className="card p-6 bg-white h-[380px]" />}>
           <LoginCard />
         </Suspense>
 
         <p className="text-xs text-brand-inkFaint mt-4">
-          You must be on the Z1Power team list to sign in. Ask an admin if you don't have access yet.
+          Accounts are created by an admin. If you don&rsquo;t have access yet, ask Yasir or Mohammad.
         </p>
       </div>
     </main>

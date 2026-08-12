@@ -11,9 +11,16 @@ model TeamMember {
   id          String          @id @default(cuid())
   name        String
   title       String?
-  email       String?         @unique // also their Google sign-in identity — must match exactly
+  email       String?         @unique // Google sign-in identity AND email/password login
   phone       String?
   role        String          @default("MEMBER") // "MEMBER" | "ADMIN"
+
+  // Email + password login (optional — a person can use Google instead, or both).
+  // Set by the person themselves via an invite link; admins never see or set it.
+  passwordHash       String?
+  inviteToken        String?   @unique
+  inviteTokenExpires DateTime?
+
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   leads       Project[]       @relation("ProjectLead")
