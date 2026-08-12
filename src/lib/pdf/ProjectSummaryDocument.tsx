@@ -20,7 +20,9 @@ const STATUS_COLOR: Record<string, string> = {
   Complete: GREEN_DARK,
 };
 
-const LOGO_PATH = path.join(process.cwd(), "public/logo.png");
+// Resolved at render time via the same multi-path probe as the fonts —
+// process.cwd() alone is unreliable inside a Vercel serverless bundle.
+import { findLogoPath } from "./fonts";
 
 const s = StyleSheet.create({
   page: { padding: 36, fontFamily: "Poppins", fontSize: 9.5, color: INK },
@@ -176,6 +178,7 @@ export type PdfProject = {
 };
 
 export function ProjectSummaryDocument({ project, generatedAt }: { project: PdfProject; generatedAt: Date }) {
+  const LOGO = findLogoPath();
   const remaining = project.estBudget - project.actualSpend;
   const totalProjected = project.q3Proj + project.q4Proj + project.q1Proj + project.q2Proj;
   const openTodos = project.todos.filter((t) => !t.done).length;
@@ -185,7 +188,7 @@ export function ProjectSummaryDocument({ project, generatedAt }: { project: PdfP
       <Page size="LETTER" style={s.page}>
         {/* Header */}
         <View style={s.headerRow}>
-          <Image src={LOGO_PATH} style={s.logo} />
+          {LOGO ? <Image src={LOGO} style={s.logo} /> : <Text style={s.kickerRight}>Z1POWER</Text>}
           <Text style={s.kickerRight}>PROJECT SUMMARY</Text>
         </View>
         <View style={s.hr} />

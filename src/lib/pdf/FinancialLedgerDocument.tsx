@@ -12,7 +12,9 @@ const LINE = "#D8D8D2";
 const WHITE = "#FFFFFF";
 const RED = "#C0392B";
 
-const LOGO_PATH = path.join(process.cwd(), "public/logo.png");
+// Resolved at render time via the same multi-path probe as the fonts —
+// process.cwd() alone is unreliable inside a Vercel serverless bundle.
+import { findLogoPath } from "./fonts";
 
 const s = StyleSheet.create({
   page: { padding: 28, fontFamily: "Poppins", fontSize: 8, color: INK },
@@ -74,6 +76,7 @@ export function FinancialLedgerDocument({
   lines: LedgerLine[];
   generatedAt: Date;
 }) {
+  const LOGO = findLogoPath();
   const budget = lines.reduce((a, l) => a + l.budgetAmount, 0);
   const actual = lines.reduce((a, l) => a + l.actualAmount, 0);
   const committed = lines
@@ -86,7 +89,7 @@ export function FinancialLedgerDocument({
     <Document title={`${projectTitle} — Financial Ledger`}>
       <Page size="LETTER" orientation="landscape" style={s.page}>
         <View style={s.headerRow}>
-          <Image src={LOGO_PATH} style={s.logo} />
+          {LOGO ? <Image src={LOGO} style={s.logo} /> : <Text style={s.kickerRight}>Z1POWER</Text>}
           <Text style={s.kickerRight}>FINANCIAL LEDGER</Text>
         </View>
         <View style={s.hr} />
