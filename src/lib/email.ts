@@ -105,7 +105,7 @@ export function taskAssignedEmail(opts: {
       </div>
       <p style="margin:0;font-size:14px;color:${INK_SOFT};line-height:1.5;">Hi ${escapeHtml(opts.assigneeName)}, this task is now on your list.</p>`,
     ctaText: "View My Tasks",
-    ctaUrl: `${opts.appUrl}/my-tasks`,
+    ctaUrl: `${opts.appUrl}/tasks`,
   });
 }
 

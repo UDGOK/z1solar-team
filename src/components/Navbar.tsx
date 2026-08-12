@@ -9,7 +9,7 @@ import { prisma } from "@/lib/prisma";
 const links = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/projects", label: "Projects" },
-  { href: "/my-tasks", label: "My Tasks" },
+  { href: "/tasks", label: "Tasks" },
   { href: "/messages", label: "Messages" },
   { href: "/team", label: "Team" },
   { href: "/settings", label: "Settings" },

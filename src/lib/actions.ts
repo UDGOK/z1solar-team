@@ -324,7 +324,7 @@ export async function toggleTodo(todoId: string, done: boolean) {
   await prisma.todo.update({ where: { id: todoId }, data: { done } });
   revalidatePath(`/projects/${todo.projectId}`);
   revalidatePath("/dashboard");
-  revalidatePath("/my-tasks");
+  revalidatePath("/tasks");
 }
 
 export async function toggleQuestion(questionId: string, resolved: boolean) {
@@ -624,7 +624,7 @@ export async function createTask(data: {
         type: "TASK_ASSIGNED",
         title: `New task from ${me.name}`,
         body: `${todo.text} — ${todo.project.title}`,
-        link: `/my-tasks`,
+        link: `/tasks`,
       },
     });
     await notifyAssigneeByEmail({
@@ -636,7 +636,7 @@ export async function createTask(data: {
     });
   }
 
-  revalidatePath("/my-tasks");
+  revalidatePath("/tasks");
   revalidatePath(`/projects/${data.projectId}`);
   revalidatePath("/dashboard");
   return { ok: true };
@@ -662,7 +662,7 @@ export async function reassignTask(todoId: string, assigneeId: string | null) {
         type: "TASK_ASSIGNED",
         title: `Task assigned to you by ${me.name}`,
         body: `${todo.text} — ${todo.project.title}`,
-        link: `/my-tasks`,
+        link: `/tasks`,
       },
     });
     await notifyAssigneeByEmail({
@@ -674,7 +674,7 @@ export async function reassignTask(todoId: string, assigneeId: string | null) {
     });
   }
 
-  revalidatePath("/my-tasks");
+  revalidatePath("/tasks");
   revalidatePath(`/projects/${todo.projectId}`);
   return { ok: true };
 }
@@ -688,7 +688,7 @@ export async function deleteTask(todoId: string) {
   if (!perms.canEditTodos) throw new Error("You can't delete tasks on this project.");
 
   await prisma.todo.delete({ where: { id: todoId } });
-  revalidatePath("/my-tasks");
+  revalidatePath("/tasks");
   revalidatePath(`/projects/${todo.projectId}`);
   return { ok: true };
 }
@@ -700,14 +700,14 @@ export async function markNotificationRead(id: string) {
   // Scoped to the recipient so nobody can mark someone else's notifications.
   await prisma.notification.updateMany({ where: { id, recipientId: me.id }, data: { read: true } });
   revalidatePath("/dashboard");
-  revalidatePath("/my-tasks");
+  revalidatePath("/tasks");
 }
 
 export async function markAllNotificationsRead() {
   const me = await requireAuth();
   await prisma.notification.updateMany({ where: { recipientId: me.id, read: false }, data: { read: true } });
   revalidatePath("/dashboard");
-  revalidatePath("/my-tasks");
+  revalidatePath("/tasks");
 }
 
 // ---------- Project highlight title (admin) ----------
@@ -1121,4 +1121,78 @@ export async function getPendingAlerts() {
     senderName: r.message.sender?.name || "Z1Power",
     createdAt: r.message.createdAt.toISOString(),
   }));
+}
+
+// ---------- Task editing (inline, from the tasks hub) ----------
+
+/**
+ * Update any field of a task in one call. Permission is checked per action:
+ * the assignee can always tick their own task done, but changing text,
+ * assignee, or due date needs canEditTodos on that project.
+ */
+export async function updateTask(
+  todoId: string,
+  data: { text?: string; assigneeId?: string | null; dueDate?: string | null; done?: boolean }
+) {
+  const me = await requireAuth();
+  const todo = await prisma.todo.findUnique({
+    where: { id: todoId },
+    include: { project: { select: { id: true, title: true } } },
+  });
+  if (!todo) throw new Error("Task not found.");
+
+  const perms = await getProjectPermissions(me, todo.projectId);
+  const isAssignee = todo.assigneeId === me.id;
+
+  // Only changing `done`? Assignee is allowed even without edit rights.
+  const onlyToggling =
+    data.done !== undefined &&
+    data.text === undefined &&
+    data.assigneeId === undefined &&
+    data.dueDate === undefined;
+
+  if (onlyToggling) {
+    if (!perms.canEditTodos && !isAssignee) throw new Error("You can't change this task.");
+  } else if (!perms.canEditTodos) {
+    throw new Error("You don't have permission to edit tasks on this project.");
+  }
+
+  const reassigned =
+    data.assigneeId !== undefined && data.assigneeId !== todo.assigneeId && !!data.assigneeId;
+
+  await prisma.todo.update({
+    where: { id: todoId },
+    data: {
+      ...(data.text !== undefined ? { text: data.text.trim() } : {}),
+      ...(data.assigneeId !== undefined ? { assigneeId: data.assigneeId || null } : {}),
+      ...(data.dueDate !== undefined ? { dueDate: data.dueDate ? new Date(data.dueDate) : null } : {}),
+      ...(data.done !== undefined ? { done: data.done } : {}),
+    },
+  });
+
+  // Tell the new owner they've picked up work.
+  if (reassigned && data.assigneeId !== me.id) {
+    await prisma.notification.create({
+      data: {
+        recipientId: data.assigneeId!,
+        type: "TASK_ASSIGNED",
+        title: `Task assigned to you by ${me.name}`,
+        body: `${data.text ?? todo.text} — ${todo.project.title}`,
+        link: "/tasks",
+      },
+    });
+    await notifyAssigneeByEmail({
+      assigneeId: data.assigneeId!,
+      assignerName: me.name,
+      taskText: data.text ?? todo.text,
+      projectTitle: todo.project.title,
+      dueDate: data.dueDate !== undefined ? (data.dueDate ? new Date(data.dueDate) : null) : todo.dueDate,
+    });
+  }
+
+  revalidatePath("/tasks");
+  revalidatePath("/tasks");
+  revalidatePath(`/projects/${todo.projectId}`);
+  revalidatePath("/dashboard");
+  return { ok: true };
 }
