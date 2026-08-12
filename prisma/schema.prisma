@@ -1,0 +1,108 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model TeamMember {
+  id          String          @id @default(cuid())
+  name        String
+  title       String?
+  email       String?
+  phone       String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  leads       Project[]       @relation("ProjectLead")
+  memberships ProjectMember[]
+}
+
+model Project {
+  id           String          @id @default(cuid())
+  title        String
+  category     String // "Solar & Battery" | "Other Projects" | "Other Matters" | "New Project"
+  leadId       String?
+  lead         TeamMember?     @relation("ProjectLead", fields: [leadId], references: [id])
+  members      ProjectMember[]
+  talkingPoints TalkingPoint[]
+  keyDates     KeyDate[]
+  todos        Todo[]
+  questions    OpenQuestion[]
+
+  // financials
+  estBudget    Float           @default(0)
+  committed    Float           @default(0)
+  actualSpend  Float           @default(0)
+  q3Proj       Float           @default(0)
+  q4Proj       Float           @default(0)
+  q1Proj       Float           @default(0)
+  q2Proj       Float           @default(0)
+  notes        String?
+
+  archived     Boolean         @default(false)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+}
+
+model ProjectMember {
+  id        String     @id @default(cuid())
+  projectId String
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  memberId  String
+  member    TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  role      String?
+  tasks     String?
+
+  @@unique([projectId, memberId])
+}
+
+model TalkingPoint {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  text      String
+  order     Int     @default(0)
+}
+
+model KeyDate {
+  id        String    @id @default(cuid())
+  projectId String
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestone String
+  date      DateTime?
+  order     Int       @default(0)
+}
+
+model Todo {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  text      String
+  done      Boolean @default(false)
+  order     Int     @default(0)
+}
+
+model OpenQuestion {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  text      String
+  resolved  Boolean @default(false)
+  order     Int     @default(0)
+}
+
+model Settings {
+  id           String  @id @default("singleton")
+  passwordHash String
+  whatsappLink String?
+  orgName      String  @default("Z1Power")
+}
+
+model MeetingLog {
+  id        String   @id @default(cuid())
+  date      DateTime @default(now())
+  notes     String?
+  createdAt DateTime @default(now())
+}

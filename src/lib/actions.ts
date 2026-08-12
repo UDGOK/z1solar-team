@@ -1,0 +1,241 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { prisma } from "./prisma";
+import { createSession, destroySession, isAuthenticated } from "./auth";
+import { verifyPassword, setPassword, setWhatsAppLink, getSettings } from "./settings";
+import bcrypt from "bcryptjs";
+
+// ---------- Auth ----------
+
+export async function login(password: string): Promise<{ ok: boolean; error?: string }> {
+  if (!password) return { ok: false, error: "Enter the team password." };
+  const valid = await verifyPassword(password);
+  if (!valid) return { ok: false, error: "Incorrect password." };
+  await createSession();
+  return { ok: true };
+}
+
+export async function logout() {
+  await destroySession();
+  redirect("/login");
+}
+
+export async function changeTeamPassword(currentPassword: string, newPassword: string) {
+  const ok = await requireAuth();
+  if (!ok) return { ok: false, error: "Not authenticated." };
+  const valid = await verifyPassword(currentPassword);
+  if (!valid) return { ok: false, error: "Current password is incorrect." };
+  if (!newPassword || newPassword.length < 6) {
+    return { ok: false, error: "New password must be at least 6 characters." };
+  }
+  await setPassword(newPassword);
+  return { ok: true };
+}
+
+async function requireAuth() {
+  return isAuthenticated();
+}
+
+// ---------- Team members ----------
+
+export type TeamMemberInput = {
+  name: string;
+  title?: string;
+  email?: string;
+  phone?: string;
+};
+
+export async function createTeamMember(data: TeamMemberInput) {
+  if (!(await requireAuth())) redirect("/login");
+  if (!data.name?.trim()) throw new Error("Name is required.");
+  await prisma.teamMember.create({
+    data: {
+      name: data.name.trim(),
+      title: data.title?.trim() || null,
+      email: data.email?.trim() || null,
+      phone: data.phone?.trim() || null,
+    },
+  });
+  revalidatePath("/team");
+  revalidatePath("/dashboard");
+}
+
+export async function updateTeamMember(id: string, data: TeamMemberInput) {
+  if (!(await requireAuth())) redirect("/login");
+  await prisma.teamMember.update({
+    where: { id },
+    data: {
+      name: data.name.trim(),
+      title: data.title?.trim() || null,
+      email: data.email?.trim() || null,
+      phone: data.phone?.trim() || null,
+    },
+  });
+  revalidatePath("/team");
+  revalidatePath("/dashboard");
+}
+
+export async function deleteTeamMember(id: string) {
+  if (!(await requireAuth())) redirect("/login");
+  await prisma.teamMember.delete({ where: { id } });
+  revalidatePath("/team");
+  revalidatePath("/dashboard");
+}
+
+// ---------- Projects ----------
+
+export type ProjectInput = {
+  title: string;
+  category: string;
+  leadId: string | null;
+  members: { memberId: string; role?: string; tasks?: string }[];
+  talkingPoints: string[];
+  keyDates: { milestone: string; date: string | null }[];
+  todos: { text: string; done: boolean }[];
+  questions: { text: string; resolved: boolean }[];
+  estBudget: number;
+  committed: number;
+  actualSpend: number;
+  q3Proj: number;
+  q4Proj: number;
+  q1Proj: number;
+  q2Proj: number;
+  notes?: string;
+};
+
+export async function createProject(data: ProjectInput) {
+  if (!(await requireAuth())) redirect("/login");
+  if (!data.title?.trim()) throw new Error("Project title is required.");
+
+  const project = await prisma.project.create({
+    data: {
+      title: data.title.trim(),
+      category: data.category,
+      leadId: data.leadId || null,
+      estBudget: data.estBudget || 0,
+      committed: data.committed || 0,
+      actualSpend: data.actualSpend || 0,
+      q3Proj: data.q3Proj || 0,
+      q4Proj: data.q4Proj || 0,
+      q1Proj: data.q1Proj || 0,
+      q2Proj: data.q2Proj || 0,
+      notes: data.notes || null,
+      members: {
+        create: data.members
+          .filter((m) => m.memberId)
+          .map((m) => ({ memberId: m.memberId, role: m.role || null, tasks: m.tasks || null })),
+      },
+      talkingPoints: {
+        create: data.talkingPoints.filter((t) => t.trim()).map((text, order) => ({ text, order })),
+      },
+      keyDates: {
+        create: data.keyDates
+          .filter((k) => k.milestone.trim())
+          .map((k, order) => ({ milestone: k.milestone, date: k.date ? new Date(k.date) : null, order })),
+      },
+      todos: {
+        create: data.todos.filter((t) => t.text.trim()).map((t, order) => ({ text: t.text, done: t.done, order })),
+      },
+      questions: {
+        create: data.questions
+          .filter((q) => q.text.trim())
+          .map((q, order) => ({ text: q.text, resolved: q.resolved, order })),
+      },
+    },
+  });
+
+  revalidatePath("/dashboard");
+  revalidatePath("/projects");
+  redirect(`/projects/${project.id}`);
+}
+
+export async function updateProject(id: string, data: ProjectInput) {
+  if (!(await requireAuth())) redirect("/login");
+
+  await prisma.$transaction([
+    prisma.projectMember.deleteMany({ where: { projectId: id } }),
+    prisma.talkingPoint.deleteMany({ where: { projectId: id } }),
+    prisma.keyDate.deleteMany({ where: { projectId: id } }),
+    prisma.todo.deleteMany({ where: { projectId: id } }),
+    prisma.openQuestion.deleteMany({ where: { projectId: id } }),
+  ]);
+
+  await prisma.project.update({
+    where: { id },
+    data: {
+      title: data.title.trim(),
+      category: data.category,
+      leadId: data.leadId || null,
+      estBudget: data.estBudget || 0,
+      committed: data.committed || 0,
+      actualSpend: data.actualSpend || 0,
+      q3Proj: data.q3Proj || 0,
+      q4Proj: data.q4Proj || 0,
+      q1Proj: data.q1Proj || 0,
+      q2Proj: data.q2Proj || 0,
+      notes: data.notes || null,
+      members: {
+        create: data.members
+          .filter((m) => m.memberId)
+          .map((m) => ({ memberId: m.memberId, role: m.role || null, tasks: m.tasks || null })),
+      },
+      talkingPoints: {
+        create: data.talkingPoints.filter((t) => t.trim()).map((text, order) => ({ text, order })),
+      },
+      keyDates: {
+        create: data.keyDates
+          .filter((k) => k.milestone.trim())
+          .map((k, order) => ({ milestone: k.milestone, date: k.date ? new Date(k.date) : null, order })),
+      },
+      todos: {
+        create: data.todos.filter((t) => t.text.trim()).map((t, order) => ({ text: t.text, done: t.done, order })),
+      },
+      questions: {
+        create: data.questions
+          .filter((q) => q.text.trim())
+          .map((q, order) => ({ text: q.text, resolved: q.resolved, order })),
+      },
+    },
+  });
+
+  revalidatePath("/dashboard");
+  revalidatePath("/projects");
+  revalidatePath(`/projects/${id}`);
+  redirect(`/projects/${id}`);
+}
+
+export async function deleteProject(id: string) {
+  if (!(await requireAuth())) redirect("/login");
+  await prisma.project.delete({ where: { id } });
+  revalidatePath("/dashboard");
+  revalidatePath("/projects");
+  redirect("/projects");
+}
+
+export async function toggleTodo(todoId: string, done: boolean) {
+  if (!(await requireAuth())) redirect("/login");
+  const todo = await prisma.todo.update({ where: { id: todoId }, data: { done }, select: { projectId: true } });
+  revalidatePath(`/projects/${todo.projectId}`);
+  revalidatePath("/dashboard");
+}
+
+export async function toggleQuestion(questionId: string, resolved: boolean) {
+  if (!(await requireAuth())) redirect("/login");
+  const q = await prisma.openQuestion.update({
+    where: { id: questionId },
+    data: { resolved },
+    select: { projectId: true },
+  });
+  revalidatePath(`/projects/${q.projectId}`);
+}
+
+// ---------- Settings ----------
+
+export async function updateWhatsAppLink(link: string) {
+  if (!(await requireAuth())) redirect("/login");
+  await setWhatsAppLink(link.trim());
+  revalidatePath("/team");
+  revalidatePath("/dashboard");
+}
