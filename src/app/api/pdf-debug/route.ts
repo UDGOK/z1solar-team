@@ -15,6 +15,7 @@ export async function GET() {
 
   const diag = fontDiagnostics();
   const logo = findLogoPath();
+  void logo;
 
   let registerOk = false;
   let registerError: string | null = null;
@@ -55,8 +56,7 @@ export async function GET() {
       summary: renderOk ? "PDF generation is working." : "PDF generation is FAILING — see errors below.",
       registerOk, registerError,
       renderOk, renderError, pdfBytes, signature,
-      logoFound: logo, cwd: diag.cwd, dirname: diag.dirname, resolvedFontDir: diag.resolvedDir,
-      pathsTried: diag.tried,
+      ...diag,
     },
     { status: 200 }
   );

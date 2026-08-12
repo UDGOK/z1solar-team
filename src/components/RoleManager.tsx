@@ -62,7 +62,9 @@ export default function RoleManager({
   function save() {
     if (!editing) return;
     setError(null);
-    const { id, memberCount, isSystem, ...payload } = editing;
+    // Send only the fields saveRole expects. The server whitelists as well,
+    // but keeping the payload clean makes failures easier to reason about.
+    const { id, memberCount, isSystem, createdAt, updatedAt, _count, ...payload } = editing as any;
     startTransition(async () => {
       try {
         await saveRole(id || null, payload as any);

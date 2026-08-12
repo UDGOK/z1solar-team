@@ -1724,7 +1724,36 @@ export async function saveRole(id: string | null, data: RoleInput) {
     }
   }
 
-  const payload = { ...data, name: data.name.trim(), description: data.description?.trim() || null };
+  // Explicitly whitelist every field rather than spreading `data`. The client
+  // sends back a whole role object, which carries Prisma metadata (createdAt,
+  // updatedAt, _count) that Prisma rejects as unknown arguments — and blindly
+  // spreading client input into a write is a bad habit regardless.
+  const payload = {
+    name: data.name.trim(),
+    description: data.description?.trim() || null,
+    rank: Number.isFinite(Number(data.rank)) ? Number(data.rank) : 10,
+    canCreateProjects: !!data.canCreateProjects,
+    canDeleteAnyProject: !!data.canDeleteAnyProject,
+    canViewAllProjects: !!data.canViewAllProjects,
+    canEditAllProjects: !!data.canEditAllProjects,
+    canViewAllFinancials: !!data.canViewAllFinancials,
+    canEditAllFinancials: !!data.canEditAllFinancials,
+    canManageTeam: !!data.canManageTeam,
+    canManageRoles: !!data.canManageRoles,
+    canSendAlerts: !!data.canSendAlerts,
+    canManageTradeShows: !!data.canManageTradeShows,
+    canViewReports: !!data.canViewReports,
+    defaultCanEditTalkingPoints: !!data.defaultCanEditTalkingPoints,
+    defaultCanEditKeyDates: !!data.defaultCanEditKeyDates,
+    defaultCanEditTodos: !!data.defaultCanEditTodos,
+    defaultCanEditQuestions: !!data.defaultCanEditQuestions,
+    defaultCanEditTeam: !!data.defaultCanEditTeam,
+    defaultCanViewFiles: !!data.defaultCanViewFiles,
+    defaultCanUploadFiles: !!data.defaultCanUploadFiles,
+    defaultCanViewFinancials: !!data.defaultCanViewFinancials,
+    defaultCanEditFinancials: !!data.defaultCanEditFinancials,
+    defaultCanEditStatus: !!data.defaultCanEditStatus,
+  };
 
   const role = id
     ? await prisma.role.update({ where: { id }, data: payload })

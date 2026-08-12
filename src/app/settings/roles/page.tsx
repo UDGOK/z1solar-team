@@ -18,7 +18,12 @@ export default async function RolesPage() {
     prisma.teamMember.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, roleId: true, role: true } }),
   ]);
 
-  const items: RoleItem[] = roles.map((r) => ({ ...r, memberCount: r._count.members }));
+  // Only send the fields the editor actually needs — spreading the raw Prisma
+  // row leaked createdAt/updatedAt/_count into the client and back into writes.
+  const items: RoleItem[] = roles.map((r) => {
+    const { _count: c, createdAt, updatedAt, ...fields } = r as any;
+    return { ...fields, memberCount: c.members };
+  });
 
   return (
     <div className="min-h-screen bg-brand-greenTint">
