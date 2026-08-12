@@ -2,12 +2,15 @@ import Link from "next/link";
 import { getCurrentMember } from "@/lib/auth";
 import SignOutButton from "@/components/SignOutButton";
 import NotificationBell from "@/components/NotificationBell";
+import AlertPopup from "@/components/AlertPopup";
+import { getPendingAlerts } from "@/lib/actions";
 import { prisma } from "@/lib/prisma";
 
 const links = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/projects", label: "Projects" },
   { href: "/my-tasks", label: "My Tasks" },
+  { href: "/messages", label: "Messages" },
   { href: "/team", label: "Team" },
   { href: "/settings", label: "Settings" },
 ];
@@ -21,9 +24,12 @@ export default async function Navbar({ active }: { active: string }) {
         take: 15,
       })
     : [];
+  const pendingAlerts = member ? await getPendingAlerts() : [];
   const badgeLabel = member ? `${member.role === "ADMIN" ? "ADMIN" : "MEMBER"} — ${member.name.toUpperCase()}` : "";
 
   return (
+    <>
+    {pendingAlerts.length > 0 && <AlertPopup alerts={pendingAlerts} />}
     <header className="border-b-2 border-brand-green bg-white sticky top-0 z-10">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-8">
@@ -75,5 +81,6 @@ export default async function Navbar({ active }: { active: string }) {
         ))}
       </nav>
     </header>
+    </>
   );
 }

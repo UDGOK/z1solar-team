@@ -920,3 +920,205 @@ export async function saveRebates(projectId: string, items: RebateInput[]) {
   revalidatePath(`/projects/${projectId}`);
   return { ok: true };
 }
+
+// ---------- Team messages & alerts ----------
+
+export type MessageInput = {
+  subject: string;
+  body: string;
+  kind: "MESSAGE" | "ALERT";
+  priority: string;
+  recipientIds: string[]; // empty = everyone
+};
+
+/**
+ * Send a message or alert. Alerts (kind: "ALERT") pop up as a blocking modal
+ * on the recipient's next page load until they acknowledge.
+ * Only admins can push alerts; anyone can send a normal message.
+ */
+export async function sendMessage(data: MessageInput) {
+  const me = await requireAuth();
+  if (!data.subject?.trim()) throw new Error("Subject is required.");
+  if (!data.body?.trim()) throw new Error("Message body is required.");
+  if (data.kind === "ALERT" && me.role !== "ADMIN") {
+    throw new Error("Only admins can push alerts.");
+  }
+
+  // Empty recipient list means the whole team (minus the sender).
+  let ids = data.recipientIds.filter(Boolean);
+  if (ids.length === 0) {
+    const all = await prisma.teamMember.findMany({ select: { id: true } });
+    ids = all.map((m) => m.id);
+  }
+  ids = Array.from(new Set(ids)).filter((id) => id !== me.id);
+  if (ids.length === 0) throw new Error("Pick at least one recipient other than yourself.");
+
+  const message = await prisma.message.create({
+    data: {
+      senderId: me.id,
+      subject: data.subject.trim(),
+      body: data.body.trim(),
+      kind: data.kind,
+      priority: data.priority || "Normal",
+      recipients: { create: ids.map((memberId) => ({ memberId })) },
+    },
+  });
+
+  // Also drop a bell notification so it shows up alongside task alerts.
+  await prisma.notification.createMany({
+    data: ids.map((memberId) => ({
+      recipientId: memberId,
+      type: "GENERAL",
+      title: data.kind === "ALERT" ? `⚠ Alert from ${me.name}` : `Message from ${me.name}`,
+      body: data.subject.trim(),
+      link: "/messages",
+    })),
+  });
+
+  // Email urgent alerts — best-effort, never blocks the send.
+  if (data.kind === "ALERT" && (data.priority === "Urgent" || data.priority === "High")) {
+    try {
+      const { sendEmail, emailShell, escapeHtml } = await import("./email");
+      const url = await appUrl();
+      const people = await prisma.teamMember.findMany({
+        where: { id: { in: ids }, email: { not: null } },
+        select: { email: true, name: true },
+      });
+      await Promise.all(
+        people.map((p) =>
+          sendEmail({
+            to: p.email!,
+            subject: `[${data.priority}] ${data.subject.trim()}`,
+            html: emailShell({
+              kicker: `${data.priority} alert`,
+              heading: escapeHtml(data.subject.trim()),
+              body: `<p style="margin:0;font-size:14px;color:#3A3A3A;line-height:1.6;white-space:pre-wrap;">${escapeHtml(
+                data.body.trim()
+              )}</p><p style="margin:16px 0 0;font-size:13px;color:#8A8A85;">Sent by ${escapeHtml(me.name)}</p>`,
+              ctaText: "Open Team Hub",
+              ctaUrl: `${url}/messages`,
+            }),
+          })
+        )
+      );
+    } catch (e) {
+      console.error("[alert email] failed:", e);
+    }
+  }
+
+  revalidatePath("/messages");
+  revalidatePath("/dashboard");
+  return { ok: true, id: message.id };
+}
+
+/** Reply to a message — goes back to the sender plus everyone else on the thread. */
+export async function replyToMessage(parentId: string, body: string) {
+  const me = await requireAuth();
+  if (!body?.trim()) throw new Error("Reply can't be empty.");
+
+  const parent = await prisma.message.findUnique({
+    where: { id: parentId },
+    include: { recipients: { select: { memberId: true } } },
+  });
+  if (!parent) throw new Error("Message not found.");
+
+  // Only people on the thread can reply to it.
+  const onThread = parent.senderId === me.id || parent.recipients.some((r) => r.memberId === me.id);
+  if (!onThread) throw new Error("You're not on this thread.");
+
+  const ids = Array.from(
+    new Set([parent.senderId, ...parent.recipients.map((r) => r.memberId)].filter(Boolean) as string[])
+  ).filter((id) => id !== me.id);
+
+  await prisma.message.create({
+    data: {
+      senderId: me.id,
+      subject: parent.subject.startsWith("Re: ") ? parent.subject : `Re: ${parent.subject}`,
+      body: body.trim(),
+      kind: "MESSAGE",
+      priority: "Normal",
+      parentId: parent.parentId || parent.id,
+      recipients: { create: ids.map((memberId) => ({ memberId })) },
+    },
+  });
+
+  if (ids.length) {
+    await prisma.notification.createMany({
+      data: ids.map((memberId) => ({
+        recipientId: memberId,
+        type: "GENERAL",
+        title: `Reply from ${me.name}`,
+        body: parent.subject,
+        link: "/messages",
+      })),
+    });
+  }
+
+  revalidatePath("/messages");
+  return { ok: true };
+}
+
+export async function markMessageRead(messageId: string) {
+  const me = await requireAuth();
+  await prisma.messageRecipient.updateMany({
+    where: { messageId, memberId: me.id, read: false },
+    data: { read: true, readAt: new Date() },
+  });
+  revalidatePath("/messages");
+  revalidatePath("/dashboard");
+}
+
+/** Acknowledge an alert — this is what stops the popup reappearing. */
+export async function acknowledgeAlert(messageId: string) {
+  const me = await requireAuth();
+  await prisma.messageRecipient.updateMany({
+    where: { messageId, memberId: me.id },
+    data: { acknowledged: true, acknowledgedAt: new Date(), read: true, readAt: new Date() },
+  });
+  revalidatePath("/messages");
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+/** Soft-delete from this person's inbox only — others keep their copy. */
+export async function deleteMessageForMe(messageId: string) {
+  const me = await requireAuth();
+  await prisma.messageRecipient.updateMany({
+    where: { messageId, memberId: me.id },
+    data: { deleted: true },
+  });
+  revalidatePath("/messages");
+  return { ok: true };
+}
+
+/** Sender (or an admin) retracts a message for everyone. */
+export async function deleteMessageForEveryone(messageId: string) {
+  const me = await requireAuth();
+  const msg = await prisma.message.findUnique({ where: { id: messageId }, select: { senderId: true } });
+  if (!msg) throw new Error("Message not found.");
+  if (msg.senderId !== me.id && me.role !== "ADMIN") {
+    throw new Error("You can only delete messages you sent.");
+  }
+  await prisma.message.delete({ where: { id: messageId } });
+  revalidatePath("/messages");
+  return { ok: true };
+}
+
+/** Unacknowledged alerts for the current user — drives the login popup. */
+export async function getPendingAlerts() {
+  const me = await getCurrentMember();
+  if (!me) return [];
+  const rows = await prisma.messageRecipient.findMany({
+    where: { memberId: me.id, acknowledged: false, deleted: false, message: { kind: "ALERT" } },
+    include: { message: { include: { sender: { select: { name: true } } } } },
+    orderBy: { message: { createdAt: "desc" } },
+  });
+  return rows.map((r) => ({
+    id: r.messageId,
+    subject: r.message.subject,
+    body: r.message.body,
+    priority: r.message.priority,
+    senderName: r.message.sender?.name || "Z1Power",
+    createdAt: r.message.createdAt.toISOString(),
+  }));
+}

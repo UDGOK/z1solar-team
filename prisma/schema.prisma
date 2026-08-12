@@ -29,6 +29,8 @@ model TeamMember {
   assignedTodos Todo[]        @relation("TodoAssignee")
   createdTodos  Todo[]        @relation("TodoCreator")
   notifications Notification[] @relation("NotificationRecipient")
+  sentMessages     Message[]          @relation("MessageSender")
+  messageReceipts  MessageRecipient[]
   subscriptions ReportSubscription[]
   emailOnTaskAssigned Boolean @default(true)
 }
@@ -279,6 +281,51 @@ model ProjectRebate {
   order       Int      @default(0)
 
   @@index([projectId])
+}
+
+// Team messages and alerts. One Message row per send, with a MessageRecipient
+// row per person so read state, dismissal, and deletion are all per-person —
+// one recipient deleting a message never affects anyone else's copy.
+model Message {
+  id        String   @id @default(cuid())
+  senderId  String?
+  sender    TeamMember? @relation("MessageSender", fields: [senderId], references: [id], onDelete: SetNull)
+
+  subject   String
+  body      String
+  // "MESSAGE" = normal team message
+  // "ALERT"   = must be acknowledged; blocks with a modal on next login
+  kind      String   @default("MESSAGE")
+  priority  String   @default("Normal") // Normal | High | Urgent
+
+  // Threading — a reply points at the message it answers.
+  parentId  String?
+  parent    Message?  @relation("MessageThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Message[] @relation("MessageThread")
+
+  recipients MessageRecipient[]
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model MessageRecipient {
+  id        String     @id @default(cuid())
+  messageId String
+  message   Message    @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  memberId  String
+  member    TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  read           Boolean   @default(false)
+  readAt         DateTime?
+  // Alerts must be explicitly acknowledged before the popup stops appearing.
+  acknowledged   Boolean   @default(false)
+  acknowledgedAt DateTime?
+  // Soft delete — hides it from this person only.
+  deleted        Boolean   @default(false)
+
+  @@unique([messageId, memberId])
+  @@index([memberId, read])
 }
 
 model Settings {
