@@ -28,6 +28,7 @@ export default function LoginPage() {
     <main className="min-h-screen flex items-center justify-center bg-brand-greenTint px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
+          <img src="/logo.png" alt="Z1Power" className="h-10 w-auto mx-auto mb-4" />
           <p className="kicker mb-2">[ Z1POWER — TEAM HUB ]</p>
           <h1 className="font-heading text-4xl font-extrabold text-brand-ink">Sign In</h1>
         </div>

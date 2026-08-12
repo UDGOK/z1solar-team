@@ -103,6 +103,8 @@ export type ProjectInput = {
   q1Proj: number;
   q2Proj: number;
   notes?: string;
+  status: string;
+  completionPct: number;
 };
 
 export async function createProject(data: ProjectInput) {
@@ -122,6 +124,8 @@ export async function createProject(data: ProjectInput) {
       q1Proj: data.q1Proj || 0,
       q2Proj: data.q2Proj || 0,
       notes: data.notes || null,
+      status: data.status || "Planning",
+      completionPct: Math.max(0, Math.min(100, Math.round(data.completionPct || 0))),
       members: {
         create: data.members
           .filter((m) => m.memberId)
@@ -176,6 +180,8 @@ export async function updateProject(id: string, data: ProjectInput) {
       q1Proj: data.q1Proj || 0,
       q2Proj: data.q2Proj || 0,
       notes: data.notes || null,
+      status: data.status || "Planning",
+      completionPct: Math.max(0, Math.min(100, Math.round(data.completionPct || 0))),
       members: {
         create: data.members
           .filter((m) => m.memberId)
@@ -279,4 +285,24 @@ export async function deleteProjectFile(fileId: string) {
     // block the DB delete on it — the row is the source of truth for the UI.
   }
   revalidatePath(`/projects/${file.projectId}`);
+}
+
+// ---------- Shareable project summary PDF ----------
+
+export async function generateShareableSummaryLink(projectId: string): Promise<{ url: string }> {
+  if (!(await requireAuth())) redirect("/login");
+  const { loadProjectForPdf, renderProjectSummaryPdf, pdfFilename } = await import("@/lib/pdf/render");
+  const { put } = await import("@vercel/blob");
+
+  const project = await loadProjectForPdf(projectId);
+  if (!project) throw new Error("Project not found.");
+
+  const buffer = await renderProjectSummaryPdf(project);
+  const blob = await put(`summaries/${pdfFilename(project.title)}`, buffer, {
+    access: "public",
+    addRandomSuffix: true,
+    contentType: "application/pdf",
+  });
+
+  return { url: blob.url };
 }

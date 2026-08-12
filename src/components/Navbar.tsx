@@ -13,8 +13,9 @@ export default function Navbar({ active }: { active: string }) {
     <header className="border-b-2 border-brand-green bg-white sticky top-0 z-10">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-8">
-          <Link href="/dashboard" className="font-heading font-extrabold text-lg tracking-tight text-brand-ink">
-            Z1POWER <span className="tag text-brand-greenDark">// TEAM HUB</span>
+          <Link href="/dashboard" className="flex items-center gap-2">
+            <img src="/logo.png" alt="Z1Power" className="h-6 w-auto" />
+            <span className="tag text-brand-greenDark hidden sm:inline">// TEAM HUB</span>
           </Link>
           <nav className="hidden sm:flex items-center gap-1">
             {links.map((l) => (

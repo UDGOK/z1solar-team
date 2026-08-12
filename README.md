@@ -13,10 +13,14 @@ Postgres.
 - **Dashboard** — budget KPIs + all projects grouped by category
 - **Projects** — full CRUD: title, category, lead, team roster (name / title
   / role / tasks assigned), talking points, key dates, to-do checklist, open
-  questions, and budget/quarterly projections
+  questions, status + completion %, file/image attachments, and
+  budget/quarterly projections
+- **PDF Summaries** — one-click branded PDF export per project (logo,
+  completion ring, team, financials) with a shareable public link
+  (Email / WhatsApp / LinkedIn / native share)
 - **Team Directory** — name, title, email, phone for everyone, plus the
-  team WhatsApp group link
-- **Settings** — change the shared password, update the WhatsApp link
+  team WhatsApp group link and weekly meeting link
+- **Settings** — change the shared password, update the WhatsApp/meeting links
 
 Pre-seeded with your current 9 team members and all 16 projects (including
 the full Data Center Mead scope) so it launches ready to use.

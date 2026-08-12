@@ -6,6 +6,7 @@ import { createProject, updateProject, type ProjectInput } from "@/lib/actions";
 import { toDateInputValue } from "@/lib/format";
 
 const CATEGORIES = ["Solar & Battery", "Other Projects", "Other Matters", "New Project"];
+const STATUSES = ["Planning", "On Track", "At Risk", "Delayed", "Complete"];
 
 type TeamMemberOption = { id: string; name: string };
 
@@ -27,6 +28,8 @@ type InitialData = {
   q1Proj: number;
   q2Proj: number;
   notes: string | null;
+  status: string;
+  completionPct: number;
 };
 
 export default function ProjectForm({
@@ -80,6 +83,8 @@ export default function ProjectForm({
   const [q1Proj, setQ1Proj] = useState(initial?.q1Proj ?? 0);
   const [q2Proj, setQ2Proj] = useState(initial?.q2Proj ?? 0);
   const [notes, setNotes] = useState(initial?.notes || "");
+  const [status, setStatus] = useState(initial?.status || "Planning");
+  const [completionPct, setCompletionPct] = useState(initial?.completionPct ?? 0);
 
   const membersOps = makeOps(members, setMembers);
   const keyDatesOps = makeOps(keyDates, setKeyDates);
@@ -111,6 +116,8 @@ export default function ProjectForm({
       q1Proj: Number(q1Proj) || 0,
       q2Proj: Number(q2Proj) || 0,
       notes,
+      status,
+      completionPct: Number(completionPct) || 0,
     };
     startTransition(async () => {
       try {
@@ -157,6 +164,35 @@ export default function ProjectForm({
               </option>
             ))}
           </select>
+        </div>
+      </section>
+
+      {/* Progress */}
+      <section className="card p-5 bg-white">
+        <p className="kicker mb-3">Progress</p>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div>
+            <label className="label">Status</label>
+            <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}>
+              {STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Completion — {completionPct}%</label>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={completionPct}
+              onChange={(e) => setCompletionPct(Number(e.target.value))}
+              className="w-full accent-[#4CAB3E] mt-2"
+            />
+          </div>
         </div>
       </section>
 

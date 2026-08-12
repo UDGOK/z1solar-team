@@ -7,6 +7,8 @@ import ToggleCheckbox from "@/components/ToggleCheckbox";
 import DeleteProjectButton from "@/components/DeleteProjectButton";
 import ProjectFiles from "@/components/ProjectFiles";
 import FileUploader from "@/components/FileUploader";
+import CompletionRing from "@/components/CompletionRing";
+import ShareSummary from "@/components/ShareSummary";
 import { toggleTodo, toggleQuestion } from "@/lib/actions";
 import { fmtMoney, fmtDate } from "@/lib/format";
 
@@ -56,6 +58,12 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
         </div>
 
         <div className="card bg-white overflow-hidden">
+          {/* Progress + Share */}
+          <div className="p-5 border-b border-brand-line flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <CompletionRing pct={project.completionPct} status={project.status} />
+            <ShareSummary projectId={project.id} projectTitle={project.title} />
+          </div>
+
           {/* Team */}
           <div className="p-5 border-b border-brand-line">
             <p className="kicker mb-2">Team</p>

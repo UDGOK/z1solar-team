@@ -42,6 +42,10 @@ model Project {
   q2Proj       Float           @default(0)
   notes        String?
 
+  // progress
+  status        String        @default("Planning") // "Planning" | "On Track" | "At Risk" | "Delayed" | "Complete"
+  completionPct Int           @default(0) // 0-100, set by the project lead
+
   archived     Boolean         @default(false)
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
