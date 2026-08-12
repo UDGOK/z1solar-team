@@ -5,9 +5,7 @@ import { requirePageAuth } from "@/lib/auth";
 import { getProjectPermissions } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { FinancialLedgerDocument } from "@/lib/pdf/FinancialLedgerDocument";
-// Importing the summary document registers the shared Poppins/Montserrat
-// fonts with @react-pdf — without this the ledger PDF falls back to Helvetica.
-import "@/lib/pdf/ProjectSummaryDocument";
+import { registerPdfFonts } from "@/lib/pdf/fonts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +23,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     include: { lineItems: { orderBy: { order: "asc" } } },
   });
   if (!project) return NextResponse.json({ error: "Project not found." }, { status: 404 });
+
+  registerPdfFonts();
 
   const el = React.createElement(FinancialLedgerDocument, {
     projectTitle: project.title,

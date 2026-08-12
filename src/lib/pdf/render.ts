@@ -2,6 +2,7 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import React from "react";
 import { prisma } from "@/lib/prisma";
 import { ProjectSummaryDocument, type PdfProject } from "./ProjectSummaryDocument";
+import { registerPdfFonts } from "./fonts";
 
 export async function loadProjectForPdf(projectId: string): Promise<PdfProject | null> {
   const project = await prisma.project.findUnique({
@@ -19,6 +20,8 @@ export async function loadProjectForPdf(projectId: string): Promise<PdfProject |
 }
 
 export async function renderProjectSummaryPdf(project: PdfProject): Promise<Buffer> {
+  // Explicit, not an import side effect — see fonts.ts for why.
+  registerPdfFonts();
   // renderToBuffer's TS signature wants a ReactElement<DocumentProps> directly;
   // ProjectSummaryDocument is a wrapper component whose own props type differs,
   // even though it resolves to a <Document> at render time. Verified working via

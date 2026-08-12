@@ -1,28 +1,6 @@
 import React from "react";
-import { Document, Page, View, Text, Image, Font, StyleSheet, Svg, Circle } from "@react-pdf/renderer";
+import { Document, Page, View, Text, Image, StyleSheet, Svg, Circle } from "@react-pdf/renderer";
 import path from "path";
-
-// ---------- fonts ----------
-const FONT_DIR = path.join(process.cwd(), "src/lib/pdf/fonts");
-
-Font.register({
-  family: "Montserrat",
-  fonts: [
-    { src: path.join(FONT_DIR, "Montserrat-Bold.ttf"), fontWeight: 700 },
-    { src: path.join(FONT_DIR, "Montserrat-ExtraBold.ttf"), fontWeight: 800 },
-  ],
-});
-
-Font.register({
-  family: "Poppins",
-  fonts: [
-    { src: path.join(FONT_DIR, "Poppins-Regular.ttf"), fontWeight: 400 },
-    { src: path.join(FONT_DIR, "Poppins-Italic.ttf"), fontWeight: 400, fontStyle: "italic" },
-    { src: path.join(FONT_DIR, "Poppins-Medium.ttf"), fontWeight: 500 },
-    { src: path.join(FONT_DIR, "Poppins-SemiBold.ttf"), fontWeight: 600 },
-    { src: path.join(FONT_DIR, "Poppins-Bold.ttf"), fontWeight: 700 },
-  ],
-});
 
 // ---------- brand ----------
 const GREEN = "#4CAB3E";
