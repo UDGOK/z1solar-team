@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requirePageAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getHiddenProjectIds } from "@/lib/permissions";
+import { getViewableProjectIds } from "@/lib/permissions";
 import Navbar from "@/components/Navbar";
 import { fmtMoney } from "@/lib/format";
 
@@ -10,15 +10,12 @@ export const dynamic = "force-dynamic";
 export default async function ProjectsPage() {
   const member = await requirePageAuth();
   const isAdmin = member.role === "ADMIN";
-  const [allProjects, hiddenIds] = await Promise.all([
-    prisma.project.findMany({
-      where: { archived: false },
-      include: { lead: true, todos: true },
-      orderBy: [{ category: "asc" }, { title: "asc" }],
-    }),
-    getHiddenProjectIds(member),
-  ]);
-  const projects = allProjects.filter((p) => !hiddenIds.has(p.id));
+  const viewableIds = await getViewableProjectIds(member);
+  const projects = await prisma.project.findMany({
+    where: { archived: false, id: { in: viewableIds } },
+    include: { lead: true, todos: true },
+    orderBy: [{ category: "asc" }, { title: "asc" }],
+  });
 
   return (
     <div className="min-h-screen bg-brand-greenTint">

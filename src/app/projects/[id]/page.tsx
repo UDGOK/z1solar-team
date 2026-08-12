@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePageAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { canViewProject, canViewProjectFinancials } from "@/lib/permissions";
+import { getProjectPermissions } from "@/lib/permissions";
+import { ALL_PERMISSIONS, type Permission } from "@/lib/permissionTypes";
 import Navbar from "@/components/Navbar";
 import ToggleCheckbox from "@/components/ToggleCheckbox";
 import DeleteProjectButton from "@/components/DeleteProjectButton";
@@ -11,8 +12,9 @@ import FileUploader from "@/components/FileUploader";
 import CompletionRing from "@/components/CompletionRing";
 import ShareSummary from "@/components/ShareSummary";
 import ProjectAccessPanel from "@/components/ProjectAccessPanel";
+import FinancialsDetail from "@/components/FinancialsDetail";
 import { toggleTodo, toggleQuestion } from "@/lib/actions";
-import { fmtMoney, fmtDate } from "@/lib/format";
+import { fmtDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -26,11 +28,11 @@ const CAT_COLOR: Record<string, string> = {
 export default async function ProjectDetailPage({ params }: { params: { id: string } }) {
   const member = await requirePageAuth();
   const isAdmin = member.role === "ADMIN";
+  const perms = await getProjectPermissions(member, params.id);
 
-  const canSeeThis = await canViewProject(member, params.id);
-  if (!canSeeThis) notFound(); // hidden from this member — don't even reveal it exists
-
-  const canSeeFinancials = await canViewProjectFinancials(member, params.id);
+  // Default-deny: no view permission means this project doesn't exist as far
+  // as this person is concerned.
+  if (!perms.canView) notFound();
 
   const project = await prisma.project.findUnique({
     where: { id: params.id },
@@ -39,30 +41,38 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
       members: { include: { member: true } },
       talkingPoints: { orderBy: { order: "asc" } },
       keyDates: { orderBy: { order: "asc" } },
-      todos: { orderBy: { order: "asc" } },
+      todos: { orderBy: { order: "asc" }, include: { assignee: { select: { id: true, name: true } } } },
       questions: { orderBy: { order: "asc" } },
       files: { orderBy: { uploadedAt: "desc" } },
     },
   });
   if (!project) notFound();
 
-  const totalProjected = project.q3Proj + project.q4Proj + project.q1Proj + project.q2Proj;
-  const remaining = project.estBudget - project.actualSpend;
+  const canEditAnything =
+    perms.canEditTalkingPoints ||
+    perms.canEditKeyDates ||
+    perms.canEditTodos ||
+    perms.canEditQuestions ||
+    perms.canEditTeam ||
+    perms.canEditFinancials ||
+    perms.canEditStatus;
 
   const accessRows = isAdmin
     ? await (async () => {
-        const [allMembers, existingAccess] = await Promise.all([
-          prisma.teamMember.findMany({ where: { role: "MEMBER" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+        const [allMembers, existing] = await Promise.all([
+          prisma.teamMember.findMany({
+            where: { role: "MEMBER" },
+            orderBy: { name: "asc" },
+            select: { id: true, name: true },
+          }),
           prisma.projectAccess.findMany({ where: { projectId: project.id } }),
         ]);
         return allMembers.map((m) => {
-          const existing = existingAccess.find((a) => a.memberId === m.id);
-          return {
-            memberId: m.id,
-            name: m.name,
-            hidden: existing?.hidden || false,
-            financialsVisible: existing?.financialsVisible || false,
-          };
+          const row = existing.find((a) => a.memberId === m.id);
+          const p = Object.fromEntries(
+            ALL_PERMISSIONS.map((perm) => [perm.key, row ? (row as any)[perm.key] === true : false])
+          ) as Record<Permission, boolean>;
+          return { memberId: m.id, name: m.name, perms: p };
         });
       })()
     : [];
@@ -77,18 +87,19 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
             <h1 className="font-heading text-3xl font-extrabold text-brand-ink">{project.title}</h1>
           </div>
           <div className="flex gap-2 shrink-0">
-            <Link href={`/projects/${project.id}/edit`} className="btn-secondary text-xs">
-              Edit
-            </Link>
+            {canEditAnything && (
+              <Link href={`/projects/${project.id}/edit`} className="btn-secondary text-xs">
+                Edit
+              </Link>
+            )}
             {isAdmin && <DeleteProjectButton id={project.id} title={project.title} />}
           </div>
         </div>
 
         <div className="card bg-white overflow-hidden">
-          {/* Progress + Share */}
           <div className="p-5 border-b border-brand-line flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <CompletionRing pct={project.completionPct} status={project.status} />
-            {canSeeFinancials && <ShareSummary projectId={project.id} projectTitle={project.title} />}
+            {perms.canViewFinancials && <ShareSummary projectId={project.id} projectTitle={project.title} />}
           </div>
 
           {/* Team */}
@@ -151,9 +162,25 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
             <div>
               <p className="kicker mb-2">To-Do</p>
               <div>
-                {project.todos.map((t) => (
-                  <ToggleCheckbox key={t.id} id={t.id} checked={t.done} onToggle={toggleTodo} label={t.text} />
-                ))}
+                {project.todos.map((t) => {
+                  const canTick = perms.canEditTodos || t.assigneeId === member.id;
+                  return (
+                    <div key={t.id} className="flex items-start justify-between gap-2">
+                      {canTick ? (
+                        <ToggleCheckbox id={t.id} checked={t.done} onToggle={toggleTodo} label={t.text} />
+                      ) : (
+                        <span className={`text-sm py-1 ${t.done ? "line-through text-brand-inkFaint" : "text-brand-inkSoft"}`}>
+                          {t.text}
+                        </span>
+                      )}
+                      {t.assignee && (
+                        <span className="shrink-0 mt-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-white border border-brand-line text-brand-inkSoft">
+                          {t.assignee.name}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
                 {project.todos.length === 0 && <p className="text-sm text-brand-inkFaint">No action items yet.</p>}
               </div>
             </div>
@@ -163,53 +190,44 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
           <div className="p-5 border-b border-brand-line">
             <p className="kicker mb-2">Open Questions</p>
             <div>
-              {project.questions.map((q) => (
-                <ToggleCheckbox key={q.id} id={q.id} checked={q.resolved} onToggle={toggleQuestion} label={q.text} />
-              ))}
+              {project.questions.map((q) =>
+                perms.canEditQuestions ? (
+                  <ToggleCheckbox key={q.id} id={q.id} checked={q.resolved} onToggle={toggleQuestion} label={q.text} />
+                ) : (
+                  <p
+                    key={q.id}
+                    className={`text-sm py-1 ${q.resolved ? "line-through text-brand-inkFaint" : "text-brand-inkSoft"}`}
+                  >
+                    {q.text}
+                  </p>
+                )
+              )}
               {project.questions.length === 0 && <p className="text-sm text-brand-inkFaint">No open questions.</p>}
             </div>
           </div>
 
-          {/* Files & Documents */}
-          <div className="p-5 border-b border-brand-line">
-            <div className="flex items-center justify-between mb-3">
-              <p className="kicker">Files & Documents</p>
-              <FileUploader projectId={project.id} />
+          {/* Files */}
+          {perms.canViewFiles && (
+            <div className="p-5 border-b border-brand-line">
+              <div className="flex items-center justify-between mb-3">
+                <p className="kicker">Files &amp; Documents</p>
+                {perms.canUploadFiles && <FileUploader projectId={project.id} />}
+              </div>
+              <ProjectFiles files={project.files} canDelete={perms.canUploadFiles} />
             </div>
-            <ProjectFiles files={project.files} />
-          </div>
+          )}
 
           {/* Financials */}
-          {canSeeFinancials ? (
-            <div className="p-5 bg-[#F2F7EF]">
-              <p className="kicker mb-3">Financials & Budget</p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-                <Fin label="Est. Budget" value={fmtMoney(project.estBudget)} />
-                <Fin label="Committed" value={fmtMoney(project.committed)} />
-                <Fin label="Spent to Date" value={fmtMoney(project.actualSpend)} />
-                <Fin label="Remaining" value={fmtMoney(remaining)} />
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm mt-4">
-                <Fin label="Q3 2026 Proj." value={fmtMoney(project.q3Proj)} />
-                <Fin label="Q4 2026 Proj." value={fmtMoney(project.q4Proj)} />
-                <Fin label="Q1 2027 Proj." value={fmtMoney(project.q1Proj)} />
-                <Fin label="Q2 2027 Proj." value={fmtMoney(project.q2Proj)} />
-              </div>
-              <div className="mt-4 text-sm">
-                <span className="font-mono text-[11px] font-bold tracking-widest text-brand-greenDark uppercase mr-2">
-                  Total Projected
-                </span>
-                <span className="font-bold">{fmtMoney(totalProjected)}</span>
-              </div>
-            </div>
+          {perms.canViewFinancials ? (
+            <FinancialsDetail p={project} />
           ) : (
             <div className="p-5 bg-[#F2F7EF]">
-              <p className="kicker mb-1">Financials & Budget</p>
+              <p className="kicker mb-1">Financials &amp; Budget</p>
               <p className="text-xs text-brand-inkFaint italic">Not visible on your account for this project.</p>
             </div>
           )}
 
-          {project.notes && (
+          {project.notes && perms.canViewFinancials && (
             <div className="p-5 border-t border-brand-line">
               <p className="kicker mb-2">Notes</p>
               <p className="text-sm italic text-brand-inkSoft">{project.notes}</p>
@@ -219,15 +237,6 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
           {isAdmin && <ProjectAccessPanel projectId={project.id} rows={accessRows} />}
         </div>
       </main>
-    </div>
-  );
-}
-
-function Fin({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="font-mono text-[10px] font-bold tracking-widest text-brand-greenDark uppercase">{label}</p>
-      <p className="font-semibold text-brand-ink">{value}</p>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import SignOutButton from "@/components/SignOutButton";
 const links = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/projects", label: "Projects" },
+  { href: "/my-tasks", label: "My Tasks" },
   { href: "/team", label: "Team" },
   { href: "/settings", label: "Settings" },
 ];

@@ -19,6 +19,7 @@ model TeamMember {
   leads       Project[]       @relation("ProjectLead")
   memberships ProjectMember[]
   access      ProjectAccess[]
+  assignedTodos Todo[]        @relation("TodoAssignee")
 }
 
 model Project {
@@ -84,12 +85,15 @@ model KeyDate {
 }
 
 model Todo {
-  id        String  @id @default(cuid())
-  projectId String
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  text      String
-  done      Boolean @default(false)
-  order     Int     @default(0)
+  id         String      @id @default(cuid())
+  projectId  String
+  project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  text       String
+  done       Boolean     @default(false)
+  order      Int         @default(0)
+  assigneeId String?
+  assignee   TeamMember? @relation("TodoAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  dueDate    DateTime?
 }
 
 model OpenQuestion {
@@ -113,18 +117,33 @@ model ProjectFile {
   uploadedAt  DateTime @default(now())
 }
 
-// Per-person, per-project overrides, set by an admin. Absence of a row means
-// the default applies: members can see the project but not its financials;
-// admins always see everything and never need a row here.
+// Per-person, per-project permissions, set by an admin.
+//
+// IMPORTANT: this is a default-DENY model. Absence of a row means the member
+// has NO access to that project at all — they won't see it anywhere. Admins
+// bypass all of this and always see everything.
+//
+// `canView` is the master switch: without it, none of the other flags matter.
 model ProjectAccess {
-  id                String     @id @default(cuid())
-  projectId         String
-  project           Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  memberId          String
-  member            TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  hidden            Boolean    @default(false) // hide this project from this member entirely
-  financialsVisible Boolean    @default(false) // let this member see financials on this project
-  updatedAt         DateTime   @updatedAt
+  id        String     @id @default(cuid())
+  projectId String
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  memberId  String
+  member    TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  canView             Boolean @default(false) // master switch — see the project at all
+  canEditTalkingPoints Boolean @default(false)
+  canEditKeyDates     Boolean @default(false)
+  canEditTodos        Boolean @default(false)
+  canEditQuestions    Boolean @default(false)
+  canEditTeam         Boolean @default(false)
+  canViewFiles        Boolean @default(false)
+  canUploadFiles      Boolean @default(false)
+  canViewFinancials   Boolean @default(false)
+  canEditFinancials   Boolean @default(false)
+  canEditStatus       Boolean @default(false) // status + completion %
+
+  updatedAt DateTime @updatedAt
 
   @@unique([projectId, memberId])
 }

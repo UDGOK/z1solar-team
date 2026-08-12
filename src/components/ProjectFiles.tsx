@@ -13,7 +13,7 @@ type FileItem = {
   uploadedAt: string | Date;
 };
 
-export default function ProjectFiles({ files }: { files: FileItem[] }) {
+export default function ProjectFiles({ files, canDelete = true }: { files: FileItem[]; canDelete?: boolean }) {
   const [isPending, startTransition] = useTransition();
 
   function remove(id: string, name: string) {
@@ -55,14 +55,16 @@ export default function ProjectFiles({ files }: { files: FileItem[] }) {
               </a>
               <p className="text-xs text-brand-inkFaint">{fmtBytes(f.size)}</p>
             </div>
-            <button
-              onClick={() => remove(f.id, f.filename)}
-              disabled={isPending}
-              className="shrink-0 w-7 h-7 rounded-md border border-brand-line text-brand-inkFaint hover:text-red-600 hover:border-red-200 flex items-center justify-center"
-              title="Remove"
-            >
-              ×
-            </button>
+            {canDelete && (
+              <button
+                onClick={() => remove(f.id, f.filename)}
+                disabled={isPending}
+                className="shrink-0 w-7 h-7 rounded-md border border-brand-line text-brand-inkFaint hover:text-red-600 hover:border-red-200 flex items-center justify-center"
+                title="Remove"
+              >
+                ×
+              </button>
+            )}
           </div>
         );
       })}

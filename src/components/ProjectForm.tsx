@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createProject, updateProject, type ProjectInput } from "@/lib/actions";
 import { toDateInputValue } from "@/lib/format";
+import { ALL_TRUE, type ProjectPermissions } from "@/lib/permissionTypes";
 
 const CATEGORIES = ["Solar & Battery", "Other Projects", "Other Matters", "New Project"];
 const STATUSES = ["Planning", "On Track", "At Risk", "Delayed", "Complete"];
@@ -18,7 +19,7 @@ type InitialData = {
   members: { memberId: string; role: string | null; tasks: string | null }[];
   talkingPoints: { text: string }[];
   keyDates: { milestone: string; date: Date | string | null }[];
-  todos: { text: string; done: boolean }[];
+  todos: { text: string; done: boolean; assigneeId?: string | null; dueDate?: Date | string | null }[];
   questions: { text: string; resolved: boolean }[];
   estBudget: number;
   committed: number;
@@ -36,10 +37,12 @@ export default function ProjectForm({
   teamMembers,
   initial,
   isAdmin = false,
+  perms = ALL_TRUE,
 }: {
   teamMembers: TeamMemberOption[];
   initial?: InitialData;
   isAdmin?: boolean;
+  perms?: ProjectPermissions;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -64,10 +67,15 @@ export default function ProjectForm({
     ]
   );
   const [todos, setTodos] = useState(
-    initial?.todos.map((t) => ({ text: t.text, done: t.done })) || [
-      { text: "", done: false },
-      { text: "", done: false },
-      { text: "", done: false },
+    initial?.todos.map((t) => ({
+      text: t.text,
+      done: t.done,
+      assigneeId: t.assigneeId || "",
+      dueDate: toDateInputValue(t.dueDate ?? null),
+    })) || [
+      { text: "", done: false, assigneeId: "", dueDate: "" },
+      { text: "", done: false, assigneeId: "", dueDate: "" },
+      { text: "", done: false, assigneeId: "", dueDate: "" },
     ]
   );
   const [questions, setQuestions] = useState(
@@ -108,7 +116,7 @@ export default function ProjectForm({
       members,
       talkingPoints,
       keyDates,
-      todos,
+      todos: todos.map((t) => ({ text: t.text, done: t.done, assigneeId: t.assigneeId || null, dueDate: t.dueDate || null })),
       questions,
       estBudget: Number(estBudget) || 0,
       committed: Number(committed) || 0,
@@ -138,7 +146,8 @@ export default function ProjectForm({
     <form onSubmit={handleSubmit} className="space-y-8">
       {error && <div className="rounded-md bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">{error}</div>}
 
-      {/* Title / Category / Lead */}
+      {/* Title / Category / Lead — admin only */}
+      {isAdmin && (
       <section className="card p-5 bg-white">
         <div className="grid sm:grid-cols-3 gap-4">
           <div className="sm:col-span-2">
@@ -168,8 +177,10 @@ export default function ProjectForm({
           </select>
         </div>
       </section>
+      )}
 
-      {/* Progress */}
+      {/* Progress — needs canEditStatus */}
+      {perms.canEditStatus && (
       <section className="card p-5 bg-white">
         <p className="kicker mb-3">Progress</p>
         <div className="grid sm:grid-cols-2 gap-4">
@@ -197,8 +208,10 @@ export default function ProjectForm({
           </div>
         </div>
       </section>
+      )}
 
-      {/* Team */}
+      {/* Team — needs canEditTeam */}
+      {perms.canEditTeam && (
       <section className="card p-5 bg-white">
         <p className="kicker mb-3">Team</p>
         <div className="space-y-3">
@@ -235,7 +248,10 @@ export default function ProjectForm({
         <AddBtn label="+ Add team member" onClick={() => setMembers([...members, { memberId: "", role: "", tasks: "" }])} />
       </section>
 
-      {/* Talking points */}
+      )}
+
+      {/* Talking points — needs canEditTalkingPoints */}
+      {perms.canEditTalkingPoints && (
       <ListSection
         title="Talking Points"
         items={talkingPoints}
@@ -244,9 +260,11 @@ export default function ProjectForm({
         addLabel="+ Add talking point"
         emptyValue=""
       />
+      )}
 
       {/* Key Dates + To-Do side by side */}
       <div className="grid lg:grid-cols-2 gap-6">
+        {perms.canEditKeyDates && (
         <section className="card p-5 bg-white">
           <p className="kicker mb-3">Key Dates</p>
           <div className="space-y-2">
@@ -270,33 +288,68 @@ export default function ProjectForm({
           </div>
           <AddBtn label="+ Add key date" onClick={() => setKeyDates([...keyDates, { milestone: "", date: "" }])} />
         </section>
+        )}
 
+        {perms.canEditTodos && (
         <section className="card p-5 bg-white">
           <p className="kicker mb-3">To-Do</p>
           <div className="space-y-2">
             {todos.map((t, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={t.done}
-                  onChange={(e) => todosOps.update(i, { ...t, done: e.target.checked })}
-                  className="w-4 h-4 accent-[#4CAB3E]"
-                />
-                <input
-                  className="input flex-1"
-                  placeholder="Add action item"
-                  value={t.text}
-                  onChange={(e) => todosOps.update(i, { ...t, text: e.target.value })}
-                />
-                <RemoveBtn onClick={() => todosOps.remove(i)} />
+              <div key={i} className="border border-brand-line rounded-md p-2 space-y-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={t.done}
+                    onChange={(e) => todosOps.update(i, { ...t, done: e.target.checked })}
+                    className="w-4 h-4 accent-[#4CAB3E]"
+                  />
+                  <input
+                    className="input flex-1"
+                    placeholder="Add action item"
+                    value={t.text}
+                    onChange={(e) => todosOps.update(i, { ...t, text: e.target.value })}
+                  />
+                  <RemoveBtn onClick={() => todosOps.remove(i)} />
+                </div>
+                <div className="grid grid-cols-2 gap-2 pl-6">
+                  <div>
+                    <label className="label !text-[10px]">Assign to</label>
+                    <select
+                      className="input !py-1 text-xs"
+                      value={t.assigneeId}
+                      onChange={(e) => todosOps.update(i, { ...t, assigneeId: e.target.value })}
+                    >
+                      <option value="">— unassigned —</option>
+                      {teamMembers.map((tm) => (
+                        <option key={tm.id} value={tm.id}>
+                          {tm.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label !text-[10px]">Due date</label>
+                    <input
+                      type="date"
+                      className="input !py-1 text-xs"
+                      value={t.dueDate}
+                      onChange={(e) => todosOps.update(i, { ...t, dueDate: e.target.value })}
+                    />
+                  </div>
+                </div>
               </div>
             ))}
           </div>
-          <AddBtn label="+ Add action item" onClick={() => setTodos([...todos, { text: "", done: false }])} />
+          <AddBtn
+            label="+ Add action item"
+            onClick={() => setTodos([...todos, { text: "", done: false, assigneeId: "", dueDate: "" }])}
+          />
         </section>
+        )}
       </div>
 
-      {/* Open Questions */}
+      {/* Open Questions — needs canEditQuestions */}
+      {perms.canEditQuestions && (
       <section className="card p-5 bg-white">
         <p className="kicker mb-3">Open Questions</p>
         <div className="space-y-2">
@@ -321,9 +374,10 @@ export default function ProjectForm({
         </div>
         <AddBtn label="+ Add question" onClick={() => setQuestions([...questions, { text: "", resolved: false }])} />
       </section>
+      )}
 
-      {/* Financials — admin only */}
-      {isAdmin && (
+      {/* Financials — needs canEditFinancials */}
+      {perms.canEditFinancials && (
         <section className="card p-5 bg-white">
           <p className="kicker mb-3">Financials & Projections</p>
           <div className="grid sm:grid-cols-3 gap-4">
@@ -340,16 +394,16 @@ export default function ProjectForm({
         </section>
       )}
 
+      {perms.canEditFinancials && (
       <section className="card p-5 bg-white">
         <p className="kicker mb-3">Notes</p>
         <textarea className="input" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </section>
-
-      {!isAdmin && (
-        <p className="text-xs text-brand-inkFaint italic">
-          Financials & Projections are only visible to admins — ask Yasir or Mohammad if a budget change is needed.
-        </p>
       )}
+
+      <p className="text-xs text-brand-inkFaint italic">
+        Only the sections you have permission to edit are shown. Everything else is left untouched when you save.
+      </p>
 
       <div className="flex items-center gap-3">
         <button type="submit" disabled={isPending} className="btn-primary">
