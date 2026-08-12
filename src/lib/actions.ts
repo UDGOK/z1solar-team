@@ -466,8 +466,17 @@ export async function generateInviteLink(memberId: string): Promise<{ url: strin
     data: { inviteToken: token, inviteTokenExpires: expires },
   });
 
-  const base = process.env.NEXTAUTH_URL || "";
+  // Build the absolute URL from the actual request host rather than trusting
+  // NEXTAUTH_URL — if that's unset or still pointing at localhost in Vercel,
+  // generated invite links would be dead on arrival for the recipient.
+  const { headers } = await import("next/headers");
+  const h = headers();
+  const host = h.get("x-forwarded-host") || h.get("host");
+  const proto = h.get("x-forwarded-proto") || (host?.includes("localhost") ? "http" : "https");
+  const base = host ? `${proto}://${host}` : process.env.NEXTAUTH_URL || "";
+
   revalidatePath("/team");
+  revalidatePath("/settings");
   return { url: `${base}/set-password?token=${token}` };
 }
 
@@ -528,5 +537,135 @@ export async function changeOwnPassword(
   }
   const passwordHash = await bcrypt.hash(newPassword, 10);
   await prisma.teamMember.update({ where: { id: member.id }, data: { passwordHash } });
+  return { ok: true };
+}
+
+// ---------- Standalone task creation & assignment ----------
+
+/**
+ * Create a task from anywhere (My Tasks, project page). The assignee does NOT
+ * need project access — assigning a task is itself the grant to see that task.
+ * Anyone who can edit todos on the project, or an admin, can create one.
+ */
+export async function createTask(data: {
+  projectId: string;
+  text: string;
+  assigneeId: string | null;
+  dueDate: string | null;
+}) {
+  const me = await requireAuth();
+  if (!data.text?.trim()) throw new Error("Task description is required.");
+  if (!data.projectId) throw new Error("Pick a project for this task.");
+
+  const perms = await getProjectPermissions(me, data.projectId);
+  if (!perms.canEditTodos) throw new Error("You don't have permission to add tasks to this project.");
+
+  const maxOrder = await prisma.todo.aggregate({
+    where: { projectId: data.projectId },
+    _max: { order: true },
+  });
+
+  const todo = await prisma.todo.create({
+    data: {
+      projectId: data.projectId,
+      text: data.text.trim(),
+      assigneeId: data.assigneeId || null,
+      dueDate: data.dueDate ? new Date(data.dueDate) : null,
+      createdById: me.id,
+      order: (maxOrder._max.order ?? -1) + 1,
+    },
+    include: { project: { select: { title: true } } },
+  });
+
+  // Notify the assignee (unless they assigned it to themselves).
+  if (todo.assigneeId && todo.assigneeId !== me.id) {
+    await prisma.notification.create({
+      data: {
+        recipientId: todo.assigneeId,
+        type: "TASK_ASSIGNED",
+        title: `New task from ${me.name}`,
+        body: `${todo.text} — ${todo.project.title}`,
+        link: `/my-tasks`,
+      },
+    });
+  }
+
+  revalidatePath("/my-tasks");
+  revalidatePath(`/projects/${data.projectId}`);
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+/** Reassign an existing task, notifying the new assignee. */
+export async function reassignTask(todoId: string, assigneeId: string | null) {
+  const me = await requireAuth();
+  const todo = await prisma.todo.findUnique({
+    where: { id: todoId },
+    include: { project: { select: { title: true } } },
+  });
+  if (!todo) throw new Error("Task not found.");
+  const perms = await getProjectPermissions(me, todo.projectId);
+  if (!perms.canEditTodos) throw new Error("You can't reassign tasks on this project.");
+
+  await prisma.todo.update({ where: { id: todoId }, data: { assigneeId: assigneeId || null } });
+
+  if (assigneeId && assigneeId !== me.id && assigneeId !== todo.assigneeId) {
+    await prisma.notification.create({
+      data: {
+        recipientId: assigneeId,
+        type: "TASK_ASSIGNED",
+        title: `Task assigned to you by ${me.name}`,
+        body: `${todo.text} — ${todo.project.title}`,
+        link: `/my-tasks`,
+      },
+    });
+  }
+
+  revalidatePath("/my-tasks");
+  revalidatePath(`/projects/${todo.projectId}`);
+  return { ok: true };
+}
+
+/** Delete a task. */
+export async function deleteTask(todoId: string) {
+  const me = await requireAuth();
+  const todo = await prisma.todo.findUnique({ where: { id: todoId }, select: { projectId: true } });
+  if (!todo) throw new Error("Task not found.");
+  const perms = await getProjectPermissions(me, todo.projectId);
+  if (!perms.canEditTodos) throw new Error("You can't delete tasks on this project.");
+
+  await prisma.todo.delete({ where: { id: todoId } });
+  revalidatePath("/my-tasks");
+  revalidatePath(`/projects/${todo.projectId}`);
+  return { ok: true };
+}
+
+// ---------- Notifications ----------
+
+export async function markNotificationRead(id: string) {
+  const me = await requireAuth();
+  // Scoped to the recipient so nobody can mark someone else's notifications.
+  await prisma.notification.updateMany({ where: { id, recipientId: me.id }, data: { read: true } });
+  revalidatePath("/dashboard");
+  revalidatePath("/my-tasks");
+}
+
+export async function markAllNotificationsRead() {
+  const me = await requireAuth();
+  await prisma.notification.updateMany({ where: { recipientId: me.id, read: false }, data: { read: true } });
+  revalidatePath("/dashboard");
+  revalidatePath("/my-tasks");
+}
+
+// ---------- Project highlight title (admin) ----------
+
+export async function updateHighlightTitle(projectId: string, highlightTitle: string) {
+  await requireAdmin();
+  await prisma.project.update({
+    where: { id: projectId },
+    data: { highlightTitle: highlightTitle.trim() || null },
+  });
+  revalidatePath("/dashboard");
+  revalidatePath(`/projects/${projectId}`);
   return { ok: true };
 }

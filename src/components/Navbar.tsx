@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { getCurrentMember } from "@/lib/auth";
 import SignOutButton from "@/components/SignOutButton";
+import NotificationBell from "@/components/NotificationBell";
+import { prisma } from "@/lib/prisma";
 
 const links = [
   { href: "/dashboard", label: "Dashboard" },
@@ -12,6 +14,13 @@ const links = [
 
 export default async function Navbar({ active }: { active: string }) {
   const member = await getCurrentMember();
+  const notifications = member
+    ? await prisma.notification.findMany({
+        where: { recipientId: member.id },
+        orderBy: { createdAt: "desc" },
+        take: 15,
+      })
+    : [];
   const badgeLabel = member ? `${member.role === "ADMIN" ? "ADMIN" : "MEMBER"} — ${member.name.toUpperCase()}` : "";
 
   return (
@@ -39,6 +48,7 @@ export default async function Navbar({ active }: { active: string }) {
           </nav>
         </div>
         <div className="flex items-center gap-3">
+          {member && <NotificationBell notifications={notifications || []} />}
           {member && (
             <span
               className={`hidden sm:inline-block px-2 py-1 rounded text-[10px] font-mono font-bold tracking-wider text-white ${

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getSettings } from "@/lib/settings";
 import { getViewableProjectIds } from "@/lib/permissions";
 import Navbar from "@/components/Navbar";
+import EditableHighlightTitle from "@/components/EditableHighlightTitle";
 
 export const dynamic = "force-dynamic";
 
@@ -111,7 +112,17 @@ export default async function DashboardPage() {
                       className="card p-4 hover:shadow-md transition-shadow bg-white block"
                     >
                       <div className="flex items-start justify-between gap-2 mb-2">
-                        <p className="font-heading font-bold text-brand-ink leading-tight">{p.title}</p>
+                        {isAdmin ? (
+                          <EditableHighlightTitle
+                            projectId={p.id}
+                            title={p.title}
+                            highlightTitle={p.highlightTitle}
+                          />
+                        ) : (
+                          <p className="font-heading font-bold text-brand-ink leading-tight">
+                            {p.highlightTitle || p.title}
+                          </p>
+                        )}
                         <span
                           className="shrink-0 px-2 py-0.5 rounded text-[10px] font-mono font-bold tracking-wider text-white"
                           style={{ backgroundColor: statusColor }}

@@ -13,6 +13,7 @@ import CompletionRing from "@/components/CompletionRing";
 import ShareSummary from "@/components/ShareSummary";
 import ProjectAccessPanel from "@/components/ProjectAccessPanel";
 import FinancialsDetail from "@/components/FinancialsDetail";
+import FinancialsLocked from "@/components/FinancialsLocked";
 import { toggleTodo, toggleQuestion } from "@/lib/actions";
 import { fmtDate } from "@/lib/format";
 
@@ -221,10 +222,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
           {perms.canViewFinancials ? (
             <FinancialsDetail p={project} />
           ) : (
-            <div className="p-5 bg-[#F2F7EF]">
-              <p className="kicker mb-1">Financials &amp; Budget</p>
-              <p className="text-xs text-brand-inkFaint italic">Not visible on your account for this project.</p>
-            </div>
+            <FinancialsLocked />
           )}
 
           {project.notes && perms.canViewFinancials && (

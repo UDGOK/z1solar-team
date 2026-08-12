@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getViewableProjectIds } from "@/lib/permissions";
 import Navbar from "@/components/Navbar";
 import ToggleCheckbox from "@/components/ToggleCheckbox";
+import NewTaskForm from "@/components/NewTaskForm";
 import { toggleTodo } from "@/lib/actions";
 import { fmtDate } from "@/lib/format";
 
@@ -11,36 +12,67 @@ export const dynamic = "force-dynamic";
 
 export default async function MyTasksPage() {
   const member = await requirePageAuth();
-  const viewableIds = await getViewableProjectIds(member);
+  const isAdmin = member.role === "ADMIN";
 
-  // Tasks assigned to me, on projects I'm allowed to see.
+  // Tasks assigned to me — deliberately NOT filtered by project access.
+  // Being handed a task is itself permission to see that task, even on a
+  // project you otherwise have no access to.
   const myTasks = await prisma.todo.findMany({
-    where: { assigneeId: member.id, projectId: { in: viewableIds } },
+    where: { assigneeId: member.id },
     include: { project: { select: { id: true, title: true } } },
     orderBy: [{ done: "asc" }, { dueDate: "asc" }],
   });
 
+  // Projects I can actually add tasks to (need canEditTodos).
+  const viewableIds = await getViewableProjectIds(member);
+  const editableProjects = isAdmin
+    ? await prisma.project.findMany({
+        where: { archived: false },
+        select: { id: true, title: true },
+        orderBy: { title: "asc" },
+      })
+    : await (async () => {
+        const rows = await prisma.projectAccess.findMany({
+          where: { memberId: member.id, canView: true, canEditTodos: true },
+          select: { projectId: true },
+        });
+        const ids = rows.map((r) => r.projectId);
+        return prisma.project.findMany({
+          where: { id: { in: ids }, archived: false },
+          select: { id: true, title: true },
+          orderBy: { title: "asc" },
+        });
+      })();
+
+  const teamMembers = await prisma.teamMember.findMany({
+    orderBy: { name: "asc" },
+    select: { id: true, name: true },
+  });
+
   const open = myTasks.filter((t) => !t.done);
   const done = myTasks.filter((t) => t.done);
+  const overdueCount = open.filter((t) => t.dueDate && new Date(t.dueDate) < new Date()).length;
 
   return (
     <div className="min-h-screen bg-brand-greenTint">
       <Navbar active="/my-tasks" />
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
-        <div className="mb-6">
-          <p className="kicker mb-1">[ Z1POWER ]</p>
-          <h1 className="font-heading text-3xl font-extrabold text-brand-ink">My Tasks</h1>
-          <p className="text-sm text-brand-inkSoft mt-1">
-            {open.length} open · {done.length} completed
-          </p>
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <p className="kicker mb-1">[ Z1POWER ]</p>
+            <h1 className="font-heading text-3xl font-extrabold text-brand-ink">My Tasks</h1>
+            <p className="text-sm text-brand-inkSoft mt-1">
+              {open.length} open · {done.length} completed
+              {overdueCount > 0 && <span className="text-red-600 font-semibold"> · {overdueCount} overdue</span>}
+            </p>
+          </div>
         </div>
+
+        <NewTaskForm projects={editableProjects} teamMembers={teamMembers} />
 
         {myTasks.length === 0 ? (
           <div className="card p-10 text-center bg-white">
             <p className="text-brand-inkSoft">No tasks assigned to you yet.</p>
-            <p className="text-xs text-brand-inkFaint mt-2">
-              An admin assigns tasks from a project&rsquo;s edit page.
-            </p>
           </div>
         ) : (
           <div className="space-y-6">

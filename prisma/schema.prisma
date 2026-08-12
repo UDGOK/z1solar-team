@@ -27,11 +27,16 @@ model TeamMember {
   memberships ProjectMember[]
   access      ProjectAccess[]
   assignedTodos Todo[]        @relation("TodoAssignee")
+  createdTodos  Todo[]        @relation("TodoCreator")
+  notifications Notification[] @relation("NotificationRecipient")
 }
 
 model Project {
   id           String          @id @default(cuid())
   title        String
+  // Optional short label shown on the dashboard highlight card. Falls back to
+  // `title` when empty, so existing projects are unaffected.
+  highlightTitle String?
   category     String // "Solar & Battery" | "Other Projects" | "Other Matters" | "New Project"
   leadId       String?
   lead         TeamMember?     @relation("ProjectLead", fields: [leadId], references: [id])
@@ -92,15 +97,37 @@ model KeyDate {
 }
 
 model Todo {
-  id         String      @id @default(cuid())
-  projectId  String
-  project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  text       String
-  done       Boolean     @default(false)
-  order      Int         @default(0)
-  assigneeId String?
-  assignee   TeamMember? @relation("TodoAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  dueDate    DateTime?
+  id          String      @id @default(cuid())
+  projectId   String
+  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  text        String
+  done        Boolean     @default(false)
+  order       Int         @default(0)
+  // Assignee does NOT need ProjectAccess on this project — a task can be
+  // handed to anyone on the team. Their access to the task itself is what
+  // grants them sight of it (see My Tasks).
+  assigneeId  String?
+  assignee    TeamMember? @relation("TodoAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  dueDate     DateTime?
+  createdById String?
+  createdBy   TeamMember? @relation("TodoCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime    @default(now())
+}
+
+// In-app notifications (bell + dashboard). Email delivery is layered on top
+// of these rows later rather than replacing them.
+model Notification {
+  id         String     @id @default(cuid())
+  recipientId String
+  recipient  TeamMember @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  type       String     // "TASK_ASSIGNED" | "TASK_DUE_SOON" | "GENERAL"
+  title      String
+  body       String?
+  link       String?    // where clicking it should take them
+  read       Boolean    @default(false)
+  createdAt  DateTime   @default(now())
+
+  @@index([recipientId, read])
 }
 
 model OpenQuestion {
