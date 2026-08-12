@@ -7,7 +7,8 @@ import { fmtMoney } from "@/lib/format";
 export const dynamic = "force-dynamic";
 
 export default async function ProjectsPage() {
-  await requirePageAuth();
+  const session = await requirePageAuth();
+  const isAdmin = session.role === "ADMIN";
   const projects = await prisma.project.findMany({
     where: { archived: false },
     include: { lead: true, todos: true },
@@ -23,9 +24,11 @@ export default async function ProjectsPage() {
             <p className="kicker mb-1">[ Z1POWER ]</p>
             <h1 className="font-heading text-3xl font-extrabold text-brand-ink">All Projects</h1>
           </div>
-          <Link href="/projects/new" className="btn-primary">
-            + New Project
-          </Link>
+          {isAdmin && (
+            <Link href="/projects/new" className="btn-primary">
+              + New Project
+            </Link>
+          )}
         </div>
 
         <div className="bg-white border border-brand-line rounded-md overflow-hidden">
@@ -35,7 +38,8 @@ export default async function ProjectsPage() {
                 <th className="px-4 py-3 font-mono text-xs tracking-widest">TITLE</th>
                 <th className="px-4 py-3 font-mono text-xs tracking-widest">CATEGORY</th>
                 <th className="px-4 py-3 font-mono text-xs tracking-widest">LEAD</th>
-                <th className="px-4 py-3 font-mono text-xs tracking-widest text-right">BUDGET</th>
+                <th className="px-4 py-3 font-mono text-xs tracking-widest">STATUS</th>
+                {isAdmin && <th className="px-4 py-3 font-mono text-xs tracking-widest text-right">BUDGET</th>}
                 <th className="px-4 py-3 font-mono text-xs tracking-widest text-right">OPEN TO-DOS</th>
               </tr>
             </thead>
@@ -52,7 +56,8 @@ export default async function ProjectsPage() {
                   </td>
                   <td className="px-4 py-3 text-brand-inkSoft">{p.category}</td>
                   <td className="px-4 py-3 text-brand-greenDark font-semibold">{p.lead?.name || "—"}</td>
-                  <td className="px-4 py-3 text-right">{fmtMoney(p.estBudget)}</td>
+                  <td className="px-4 py-3 text-brand-inkSoft">{p.status}</td>
+                  {isAdmin && <td className="px-4 py-3 text-right">{fmtMoney(p.estBudget)}</td>}
                   <td className="px-4 py-3 text-right font-mono">
                     {p.todos.filter((t) => !t.done).length}
                   </td>
@@ -60,8 +65,13 @@ export default async function ProjectsPage() {
               ))}
               {projects.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-brand-inkFaint">
-                    No projects yet. <Link href="/projects/new" className="text-brand-greenDark font-semibold">Create one →</Link>
+                  <td colSpan={isAdmin ? 6 : 5} className="px-4 py-10 text-center text-brand-inkFaint">
+                    No projects yet.{" "}
+                    {isAdmin && (
+                      <Link href="/projects/new" className="text-brand-greenDark font-semibold">
+                        Create one →
+                      </Link>
+                    )}
                   </td>
                 </tr>
               )}

@@ -35,9 +35,11 @@ type InitialData = {
 export default function ProjectForm({
   teamMembers,
   initial,
+  isAdmin = false,
 }: {
   teamMembers: TeamMemberOption[];
   initial?: InitialData;
+  isAdmin?: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -320,25 +322,34 @@ export default function ProjectForm({
         <AddBtn label="+ Add question" onClick={() => setQuestions([...questions, { text: "", resolved: false }])} />
       </section>
 
-      {/* Financials */}
+      {/* Financials — admin only */}
+      {isAdmin && (
+        <section className="card p-5 bg-white">
+          <p className="kicker mb-3">Financials & Projections</p>
+          <div className="grid sm:grid-cols-3 gap-4">
+            <MoneyField label="Est. Total Budget" value={estBudget} onChange={setEstBudget} />
+            <MoneyField label="Committed to Date" value={committed} onChange={setCommitted} />
+            <MoneyField label="Actual Spend to Date" value={actualSpend} onChange={setActualSpend} />
+          </div>
+          <div className="grid sm:grid-cols-4 gap-4 mt-4">
+            <MoneyField label="Q3 2026 Projected" value={q3Proj} onChange={setQ3Proj} />
+            <MoneyField label="Q4 2026 Projected" value={q4Proj} onChange={setQ4Proj} />
+            <MoneyField label="Q1 2027 Projected" value={q1Proj} onChange={setQ1Proj} />
+            <MoneyField label="Q2 2027 Projected" value={q2Proj} onChange={setQ2Proj} />
+          </div>
+        </section>
+      )}
+
       <section className="card p-5 bg-white">
-        <p className="kicker mb-3">Financials & Projections</p>
-        <div className="grid sm:grid-cols-3 gap-4">
-          <MoneyField label="Est. Total Budget" value={estBudget} onChange={setEstBudget} />
-          <MoneyField label="Committed to Date" value={committed} onChange={setCommitted} />
-          <MoneyField label="Actual Spend to Date" value={actualSpend} onChange={setActualSpend} />
-        </div>
-        <div className="grid sm:grid-cols-4 gap-4 mt-4">
-          <MoneyField label="Q3 2026 Projected" value={q3Proj} onChange={setQ3Proj} />
-          <MoneyField label="Q4 2026 Projected" value={q4Proj} onChange={setQ4Proj} />
-          <MoneyField label="Q1 2027 Projected" value={q1Proj} onChange={setQ1Proj} />
-          <MoneyField label="Q2 2027 Projected" value={q2Proj} onChange={setQ2Proj} />
-        </div>
-        <div className="mt-4">
-          <label className="label">Notes</label>
-          <textarea className="input" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
-        </div>
+        <p className="kicker mb-3">Notes</p>
+        <textarea className="input" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </section>
+
+      {!isAdmin && (
+        <p className="text-xs text-brand-inkFaint italic">
+          Financials & Projections are only visible to admins — ask Yasir or Mohammad if a budget change is needed.
+        </p>
+      )}
 
       <div className="flex items-center gap-3">
         <button type="submit" disabled={isPending} className="btn-primary">

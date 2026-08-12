@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "./prisma";
-import { createSession, destroySession, isAuthenticated } from "./auth";
+import { createMemberSession, createAdminSession, destroySession, getSession, isAuthenticated } from "./auth";
 import { verifyPassword, setPassword, setWhatsAppLink, getSettings } from "./settings";
 import bcrypt from "bcryptjs";
 
@@ -13,7 +13,17 @@ export async function login(password: string): Promise<{ ok: boolean; error?: st
   if (!password) return { ok: false, error: "Enter the team password." };
   const valid = await verifyPassword(password);
   if (!valid) return { ok: false, error: "Incorrect password." };
-  await createSession();
+  await createMemberSession();
+  return { ok: true };
+}
+
+export async function loginAdmin(email: string, password: string): Promise<{ ok: boolean; error?: string }> {
+  if (!email || !password) return { ok: false, error: "Enter email and password." };
+  const admin = await prisma.teamMember.findFirst({ where: { email: email.trim(), role: "ADMIN" } });
+  if (!admin || !admin.passwordHash) return { ok: false, error: "Invalid admin credentials." };
+  const valid = await bcrypt.compare(password, admin.passwordHash);
+  if (!valid) return { ok: false, error: "Invalid admin credentials." };
+  await createAdminSession(admin.id);
   return { ok: true };
 }
 
@@ -36,6 +46,50 @@ export async function changeTeamPassword(currentPassword: string, newPassword: s
 
 async function requireAuth() {
   return isAuthenticated();
+}
+
+/** Throws if the current session isn't an admin. Use inside actions that must be admin-only. */
+async function requireAdmin() {
+  const session = await getSession();
+  if (!session) redirect("/login");
+  if (session!.role !== "ADMIN") throw new Error("Admins only.");
+  return session!;
+}
+
+// ---------- Admin management (admin-only) ----------
+
+export async function promoteToAdmin(memberId: string, email: string, password: string) {
+  await requireAdmin();
+  if (!email?.trim()) throw new Error("Email is required for admin login.");
+  if (!password || password.length < 6) throw new Error("Password must be at least 6 characters.");
+  const passwordHash = await bcrypt.hash(password, 10);
+  await prisma.teamMember.update({
+    where: { id: memberId },
+    data: { role: "ADMIN", email: email.trim(), passwordHash },
+  });
+  revalidatePath("/settings");
+  revalidatePath("/team");
+}
+
+export async function revokeAdmin(memberId: string) {
+  const session = await requireAdmin();
+  if (session.adminId === memberId) throw new Error("You can't revoke your own admin access.");
+  await prisma.teamMember.update({ where: { id: memberId }, data: { role: "MEMBER", passwordHash: null } });
+  revalidatePath("/settings");
+  revalidatePath("/team");
+}
+
+export async function changeAdminPassword(currentPassword: string, newPassword: string) {
+  const session = await getSession();
+  if (!session || session.role !== "ADMIN" || !session.adminId) return { ok: false, error: "Not signed in as admin." };
+  const admin = await prisma.teamMember.findUnique({ where: { id: session.adminId } });
+  if (!admin?.passwordHash) return { ok: false, error: "Admin account not found." };
+  const valid = await bcrypt.compare(currentPassword, admin.passwordHash);
+  if (!valid) return { ok: false, error: "Current password is incorrect." };
+  if (!newPassword || newPassword.length < 6) return { ok: false, error: "New password must be at least 6 characters." };
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await prisma.teamMember.update({ where: { id: admin.id }, data: { passwordHash } });
+  return { ok: true };
 }
 
 // ---------- Team members ----------
@@ -108,7 +162,7 @@ export type ProjectInput = {
 };
 
 export async function createProject(data: ProjectInput) {
-  if (!(await requireAuth())) redirect("/login");
+  await requireAdmin(); // only admins can create new projects
   if (!data.title?.trim()) throw new Error("Project title is required.");
 
   const project = await prisma.project.create({
@@ -156,7 +210,29 @@ export async function createProject(data: ProjectInput) {
 }
 
 export async function updateProject(id: string, data: ProjectInput) {
-  if (!(await requireAuth())) redirect("/login");
+  const session = await getSession();
+  if (!session) redirect("/login");
+
+  // Members can edit everything except financials — even if the client somehow
+  // submits financial values (e.g. a tampered request), keep the existing DB
+  // values for anyone who isn't an admin. The UI hides these fields for
+  // members, but this is the actual security boundary, not just the hidden form.
+  let financials = {
+    estBudget: data.estBudget || 0,
+    committed: data.committed || 0,
+    actualSpend: data.actualSpend || 0,
+    q3Proj: data.q3Proj || 0,
+    q4Proj: data.q4Proj || 0,
+    q1Proj: data.q1Proj || 0,
+    q2Proj: data.q2Proj || 0,
+  };
+  if (session!.role !== "ADMIN") {
+    const existing = await prisma.project.findUnique({
+      where: { id },
+      select: { estBudget: true, committed: true, actualSpend: true, q3Proj: true, q4Proj: true, q1Proj: true, q2Proj: true },
+    });
+    if (existing) financials = existing;
+  }
 
   await prisma.$transaction([
     prisma.projectMember.deleteMany({ where: { projectId: id } }),
@@ -172,13 +248,7 @@ export async function updateProject(id: string, data: ProjectInput) {
       title: data.title.trim(),
       category: data.category,
       leadId: data.leadId || null,
-      estBudget: data.estBudget || 0,
-      committed: data.committed || 0,
-      actualSpend: data.actualSpend || 0,
-      q3Proj: data.q3Proj || 0,
-      q4Proj: data.q4Proj || 0,
-      q1Proj: data.q1Proj || 0,
-      q2Proj: data.q2Proj || 0,
+      ...financials,
       notes: data.notes || null,
       status: data.status || "Planning",
       completionPct: Math.max(0, Math.min(100, Math.round(data.completionPct || 0))),
@@ -213,7 +283,7 @@ export async function updateProject(id: string, data: ProjectInput) {
 }
 
 export async function deleteProject(id: string) {
-  if (!(await requireAuth())) redirect("/login");
+  await requireAdmin(); // only admins can delete projects
   await prisma.project.delete({ where: { id } });
   revalidatePath("/dashboard");
   revalidatePath("/projects");
@@ -290,7 +360,9 @@ export async function deleteProjectFile(fileId: string) {
 // ---------- Shareable project summary PDF ----------
 
 export async function generateShareableSummaryLink(projectId: string): Promise<{ url: string }> {
-  if (!(await requireAuth())) redirect("/login");
+  const session = await getSession();
+  if (!session) redirect("/login");
+  if (session.role !== "ADMIN") throw new Error("Only admins can share project summaries (they include financials).");
   const { loadProjectForPdf, renderProjectSummaryPdf, pdfFilename } = await import("@/lib/pdf/render");
   const { put } = await import("@vercel/blob");
 

@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { requirePageAuth } from "@/lib/auth";
+import { requirePageAdmin } from "@/lib/auth";
 import { loadProjectForPdf, renderProjectSummaryPdf, pdfFilename } from "@/lib/pdf/render";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
-  await requirePageAuth(); // redirects to /login if not authenticated
+  await requirePageAdmin(); // PDF includes financials — admins only
 
   const project = await loadProjectForPdf(params.id);
   if (!project) {

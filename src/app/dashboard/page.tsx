@@ -22,7 +22,8 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 export default async function DashboardPage() {
-  await requirePageAuth();
+  const session = await requirePageAuth();
+  const isAdmin = session.role === "ADMIN";
 
   const [projects, teamCount, settings] = await Promise.all([
     prisma.project.findMany({
@@ -82,9 +83,11 @@ export default async function DashboardPage() {
             <Link href="/team" className="btn-secondary text-xs">
               {teamCount} Team Members →
             </Link>
-            <Link href="/projects/new" className="btn-primary text-xs">
-              + New Project
-            </Link>
+            {isAdmin && (
+              <Link href="/projects/new" className="btn-primary text-xs">
+                + New Project
+              </Link>
+            )}
           </div>
         </div>
 
@@ -140,9 +143,11 @@ export default async function DashboardPage() {
           {projects.length === 0 && (
             <div className="card p-10 text-center bg-white">
               <p className="text-brand-inkSoft mb-4">No projects yet.</p>
-              <Link href="/projects/new" className="btn-primary text-sm">
-                Create your first project
-              </Link>
+              {isAdmin && (
+                <Link href="/projects/new" className="btn-primary text-sm">
+                  Create your first project
+                </Link>
+              )}
             </div>
           )}
         </div>

@@ -20,6 +20,9 @@ Postgres.
   (Email / WhatsApp / LinkedIn / native share)
 - **Team Directory** — name, title, email, phone for everyone, plus the
   team WhatsApp group link and weekly meeting link
+- **Roles** — admins (financials, project create/delete, promoting other
+  admins) vs. everyone else (shared password, no financial access, can't
+  add/delete projects) — see "Roles & Admin Access" below
 - **Settings** — change the shared password, update the WhatsApp/meeting links
 
 Pre-seeded with your current 9 team members and all 16 projects (including
@@ -109,7 +112,30 @@ edit `prisma/schema.prisma` and re-run `npm run db:push` against production.
 
 ---
 
-## 4. Notes
+## 4. Roles & Admin Access
+
+There are two ways into the app:
+
+- **Team Login** — the one shared password everyone already uses. Members
+  can view and edit everything *except* financials, and can't create or
+  delete projects.
+- **Admin Login** — an individual email + password. Admins see financials,
+  can create/delete projects, and can promote or revoke other admins from
+  Settings → Manage Admins.
+
+The first admin account is bootstrapped by `npm run db:seed` (see
+`ADMIN_BOOTSTRAP_PASSWORD` in `.env.example`) — it promotes the team member
+named "Yasir". After logging in as that admin, go to **Settings → Manage
+Admins** to promote anyone else (e.g. Mohammad) by setting their email and a
+password. Change the bootstrap password immediately from Settings.
+
+Financial protection is enforced server-side, not just hidden in the UI —
+even a modified request from a non-admin session can't write to budget
+fields; the server keeps the existing values regardless of what's submitted.
+
+---
+
+## 6. Notes
 
 - **Auth** is a single shared password (bcrypt-hashed, stored in the
   database) behind an HTTP-only signed session cookie — intentionally

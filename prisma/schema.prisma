@@ -13,6 +13,8 @@ model TeamMember {
   title       String?
   email       String?
   phone       String?
+  role        String          @default("MEMBER") // "MEMBER" | "ADMIN"
+  passwordHash String?        // only set for ADMIN accounts (individual login)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   leads       Project[]       @relation("ProjectLead")

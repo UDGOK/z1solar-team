@@ -22,7 +22,8 @@ const CAT_COLOR: Record<string, string> = {
 };
 
 export default async function ProjectDetailPage({ params }: { params: { id: string } }) {
-  await requirePageAuth();
+  const session = await requirePageAuth();
+  const isAdmin = session.role === "ADMIN";
   const project = await prisma.project.findUnique({
     where: { id: params.id },
     include: {
@@ -53,7 +54,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
             <Link href={`/projects/${project.id}/edit`} className="btn-secondary text-xs">
               Edit
             </Link>
-            <DeleteProjectButton id={project.id} title={project.title} />
+            {isAdmin && <DeleteProjectButton id={project.id} title={project.title} />}
           </div>
         </div>
 
@@ -61,7 +62,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
           {/* Progress + Share */}
           <div className="p-5 border-b border-brand-line flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <CompletionRing pct={project.completionPct} status={project.status} />
-            <ShareSummary projectId={project.id} projectTitle={project.title} />
+            {isAdmin && <ShareSummary projectId={project.id} projectTitle={project.title} />}
           </div>
 
           {/* Team */}
@@ -152,31 +153,42 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
             <ProjectFiles files={project.files} />
           </div>
 
-          {/* Financials */}
-          <div className="p-5 bg-[#F2F7EF]">
-            <p className="kicker mb-3">Financials & Budget</p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-              <Fin label="Est. Budget" value={fmtMoney(project.estBudget)} />
-              <Fin label="Committed" value={fmtMoney(project.committed)} />
-              <Fin label="Spent to Date" value={fmtMoney(project.actualSpend)} />
-              <Fin label="Remaining" value={fmtMoney(remaining)} />
+          {/* Financials — admin only */}
+          {isAdmin ? (
+            <div className="p-5 bg-[#F2F7EF]">
+              <p className="kicker mb-3">Financials & Budget</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                <Fin label="Est. Budget" value={fmtMoney(project.estBudget)} />
+                <Fin label="Committed" value={fmtMoney(project.committed)} />
+                <Fin label="Spent to Date" value={fmtMoney(project.actualSpend)} />
+                <Fin label="Remaining" value={fmtMoney(remaining)} />
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm mt-4">
+                <Fin label="Q3 2026 Proj." value={fmtMoney(project.q3Proj)} />
+                <Fin label="Q4 2026 Proj." value={fmtMoney(project.q4Proj)} />
+                <Fin label="Q1 2027 Proj." value={fmtMoney(project.q1Proj)} />
+                <Fin label="Q2 2027 Proj." value={fmtMoney(project.q2Proj)} />
+              </div>
+              <div className="mt-4 text-sm">
+                <span className="font-mono text-[11px] font-bold tracking-widest text-brand-greenDark uppercase mr-2">
+                  Total Projected
+                </span>
+                <span className="font-bold">{fmtMoney(totalProjected)}</span>
+              </div>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm mt-4">
-              <Fin label="Q3 2026 Proj." value={fmtMoney(project.q3Proj)} />
-              <Fin label="Q4 2026 Proj." value={fmtMoney(project.q4Proj)} />
-              <Fin label="Q1 2027 Proj." value={fmtMoney(project.q1Proj)} />
-              <Fin label="Q2 2027 Proj." value={fmtMoney(project.q2Proj)} />
+          ) : (
+            <div className="p-5 bg-[#F2F7EF]">
+              <p className="kicker mb-1">Financials & Budget</p>
+              <p className="text-xs text-brand-inkFaint italic">Visible to admins only.</p>
             </div>
-            <div className="mt-4 text-sm">
-              <span className="font-mono text-[11px] font-bold tracking-widest text-brand-greenDark uppercase mr-2">
-                Total Projected
-              </span>
-              <span className="font-bold">{fmtMoney(totalProjected)}</span>
+          )}
+
+          {project.notes && (
+            <div className="p-5 border-t border-brand-line">
+              <p className="kicker mb-2">Notes</p>
+              <p className="text-sm italic text-brand-inkSoft">{project.notes}</p>
             </div>
-            {project.notes && (
-              <p className="mt-4 text-sm italic text-brand-inkSoft border-t border-brand-line pt-3">{project.notes}</p>
-            )}
-          </div>
+          )}
         </div>
       </main>
     </div>

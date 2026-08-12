@@ -210,6 +210,32 @@ async function main() {
     console.log(`  Created "${p.title}"`);
   }
 
+  // Bootstrap the first admin account. Without this, there's a chicken-and-egg
+  // problem — no admin exists yet to promote anyone from the Settings UI.
+  // Safe to re-run: if Yasir is already an admin, this does nothing.
+  console.log("Bootstrapping first admin account…");
+  const bootstrapAdmin = await prisma.teamMember.findFirst({ where: { name: "Yasir" } });
+  if (bootstrapAdmin && bootstrapAdmin.role !== "ADMIN") {
+    const adminEmail = bootstrapAdmin.email || "yasir@z1power-admin.local";
+    const adminPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD || "Z1PowerAdmin2026!";
+    const passwordHash = await bcrypt.hash(adminPassword, 10);
+    await prisma.teamMember.update({
+      where: { id: bootstrapAdmin.id },
+      data: { role: "ADMIN", email: adminEmail, passwordHash },
+    });
+    console.log(`  Yasir promoted to ADMIN.`);
+    console.log(`  Admin login — email: ${adminEmail}  password: ${adminPassword}`);
+    console.log(`  Change this password immediately from Settings after logging in.`);
+    if (!bootstrapAdmin.email) {
+      console.log(`  Note: no email was on file for Yasir, so a placeholder was used.`);
+      console.log(`  Update it in Team Directory to your real email before relying on this login.`);
+    }
+  } else if (bootstrapAdmin) {
+    console.log(`  Yasir is already an admin — skipping.`);
+  } else {
+    console.log(`  No team member named "Yasir" found — skipping admin bootstrap.`);
+  }
+
   console.log("Done.");
 }
 

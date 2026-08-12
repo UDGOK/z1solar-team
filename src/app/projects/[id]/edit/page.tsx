@@ -7,7 +7,7 @@ import ProjectForm from "@/components/ProjectForm";
 export const dynamic = "force-dynamic";
 
 export default async function EditProjectPage({ params }: { params: { id: string } }) {
-  await requirePageAuth();
+  const session = await requirePageAuth();
   const [project, teamMembers] = await Promise.all([
     prisma.project.findUnique({
       where: { id: params.id },
@@ -30,7 +30,7 @@ export default async function EditProjectPage({ params }: { params: { id: string
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
         <p className="kicker mb-1">[ Z1POWER ]</p>
         <h1 className="font-heading text-3xl font-extrabold text-brand-ink mb-6">Edit — {project.title}</h1>
-        <ProjectForm teamMembers={teamMembers} initial={project} />
+        <ProjectForm teamMembers={teamMembers} initial={project} isAdmin={session.role === "ADMIN"} />
       </main>
     </div>
   );
