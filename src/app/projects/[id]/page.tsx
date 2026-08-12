@@ -13,6 +13,7 @@ import CompletionRing from "@/components/CompletionRing";
 import ShareSummary from "@/components/ShareSummary";
 import ProjectAccessPanel from "@/components/ProjectAccessPanel";
 import ReportSubscriptions from "@/components/ReportSubscriptions";
+import ActivityFeed from "@/components/ActivityFeed";
 import SiteDetailsForm from "@/components/SiteDetailsForm";
 import RebatePanel from "@/components/RebatePanel";
 import FinancialsDetail from "@/components/FinancialsDetail";
@@ -314,6 +315,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
 
           {isAdmin && <ProjectAccessPanel projectId={project.id} rows={accessRows} />}
           {isAdmin && <ReportSubscriptions projectId={project.id} rows={subRows} />}
+          <ActivityFeed projectId={project.id} />
         </div>
       </main>
     </div>

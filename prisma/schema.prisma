@@ -30,6 +30,8 @@ model TeamMember {
   createdTodos  Todo[]        @relation("TodoCreator")
   notifications Notification[] @relation("NotificationRecipient")
   sentMessages     Message[]          @relation("MessageSender")
+  activities       Activity[]
+  savedViews       SavedView[]
   messageReceipts  MessageRecipient[]
   subscriptions ReportSubscription[]
   emailOnTaskAssigned Boolean @default(true)
@@ -103,6 +105,7 @@ model Project {
   ownerNotes    String?
 
   rebates       ProjectRebate[]
+  activities    Activity[]
 
   // progress
   status        String        @default("Planning") // "Planning" | "On Track" | "At Risk" | "Delayed" | "Complete"
@@ -326,6 +329,45 @@ model MessageRecipient {
 
   @@unique([messageId, memberId])
   @@index([memberId, read])
+}
+
+// Immutable record of what happened on a project. Never edited or deleted by
+// users — only appended. Powers the per-project activity feed.
+model Activity {
+  id        String      @id @default(cuid())
+  projectId String?
+  project   Project?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  actorId   String?
+  actor     TeamMember? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  // Denormalised so the feed still reads correctly after someone leaves.
+  actorName String
+
+  // e.g. "task.created", "financials.updated", "member.access_changed"
+  action    String
+  // Human-readable one-liner, pre-rendered at write time.
+  summary   String
+  // Optional structured detail (before/after values, ids).
+  meta      String?
+  createdAt DateTime    @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([createdAt])
+}
+
+// A named, reusable filter across tasks or projects.
+model SavedView {
+  id        String     @id @default(cuid())
+  ownerId   String
+  owner     TeamMember @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name      String
+  scope     String     @default("tasks") // "tasks" | "projects"
+  // JSON blob of the filter state — kept opaque so adding new filter
+  // dimensions later doesn't require a migration.
+  filters   String
+  shared    Boolean    @default(false) // visible to the whole team
+  createdAt DateTime   @default(now())
+
+  @@index([ownerId])
 }
 
 model Settings {

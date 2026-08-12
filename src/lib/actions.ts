@@ -6,6 +6,7 @@ import { prisma } from "./prisma";
 import { getCurrentMember } from "./auth";
 import { setWhatsAppLink } from "./settings";
 import { getProjectPermissions } from "./permissions";
+import { logActivity } from "./activity";
 import type { Permission } from "./permissionTypes";
 
 async function requireAuth() {
@@ -345,7 +346,7 @@ export async function setProjectPermissions(
   memberId: string,
   perms: Record<Permission, boolean>
 ) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   // canView is the master switch: turning it off clears everything else, so
   // no stale flags linger on a project the person can't open.
   const normalized = perms.canView
@@ -357,6 +358,18 @@ export async function setProjectPermissions(
     create: { projectId, memberId, ...normalized },
     update: normalized,
   });
+  const target = await prisma.teamMember.findUnique({ where: { id: memberId }, select: { name: true } });
+  const granted = Object.entries(normalized).filter(([, v]) => v).length;
+  await logActivity({
+    projectId,
+    actor: admin,
+    action: "access.changed",
+    summary: normalized.canView
+      ? `Granted ${target?.name || "a member"} ${granted} permission${granted === 1 ? "" : "s"}`
+      : `Revoked all access for ${target?.name || "a member"}`,
+    meta: { memberId, permissions: normalized },
+  });
+
   revalidatePath(`/projects/${projectId}`);
   revalidatePath("/projects");
   revalidatePath("/dashboard");
@@ -399,6 +412,14 @@ export async function attachFileToProject(
       size: file.size,
     },
   });
+  await logActivity({
+    projectId,
+    actor: member,
+    action: "file.uploaded",
+    summary: `Uploaded ${file.filename}`,
+    meta: { filename: file.filename, size: file.size },
+  });
+
   revalidatePath(`/projects/${projectId}`);
 }
 
@@ -636,6 +657,14 @@ export async function createTask(data: {
     });
   }
 
+  await logActivity({
+    projectId: data.projectId,
+    actor: me,
+    action: "task.created",
+    summary: `Created task "${todo.text.slice(0, 80)}"${todo.assigneeId ? "" : " (unassigned)"}`,
+    meta: { todoId: todo.id, assigneeId: todo.assigneeId },
+  });
+
   revalidatePath("/tasks");
   revalidatePath(`/projects/${data.projectId}`);
   revalidatePath("/dashboard");
@@ -781,6 +810,14 @@ export async function saveLineItems(projectId: string, items: LineItemInput[]) {
     data: { estBudget: budgetTotal, actualSpend: actualTotal, committed: committedTotal },
   });
 
+  await logActivity({
+    projectId,
+    actor: me,
+    action: "financials.updated",
+    summary: `Updated financial ledger — ${rows.length} line item${rows.length === 1 ? "" : "s"}, budget ${budgetTotal.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}`,
+    meta: { lineItems: rows.length, budgetTotal, actualTotal },
+  });
+
   revalidatePath(`/projects/${projectId}`);
   revalidatePath(`/projects/${projectId}/financials`);
   revalidatePath("/dashboard");
@@ -864,6 +901,13 @@ export async function updateProjectSite(projectId: string, data: SiteInput) {
       ownerNotes: data.ownerNotes?.trim() || null,
     },
   });
+  await logActivity({
+    projectId,
+    actor: me,
+    action: "site.updated",
+    summary: "Updated site location / owner details",
+  });
+
   revalidatePath(`/projects/${projectId}`);
   return { ok: true };
 }
@@ -1190,9 +1234,242 @@ export async function updateTask(
     });
   }
 
-  revalidatePath("/tasks");
+  if (data.done !== undefined && data.done !== todo.done) {
+    await logActivity({
+      projectId: todo.projectId,
+      actor: me,
+      action: data.done ? "task.completed" : "task.reopened",
+      summary: `${data.done ? "Completed" : "Reopened"} "${todo.text.slice(0, 80)}"`,
+      meta: { todoId: todo.id },
+    });
+  }
+  if (!onlyToggling) {
+    await logActivity({
+      projectId: todo.projectId,
+      actor: me,
+      action: reassigned ? "task.assigned" : "task.updated",
+      summary: reassigned
+        ? `Reassigned "${(data.text ?? todo.text).slice(0, 60)}"`
+        : `Edited task "${(data.text ?? todo.text).slice(0, 60)}"`,
+      meta: { todoId: todo.id, assigneeId: data.assigneeId },
+    });
+  }
+
   revalidatePath("/tasks");
   revalidatePath(`/projects/${todo.projectId}`);
   revalidatePath("/dashboard");
   return { ok: true };
+}
+
+// ---------- Global search ----------
+
+export type SearchHit = {
+  type: "project" | "task" | "file" | "person";
+  id: string;
+  title: string;
+  subtitle: string;
+  href: string;
+  badge?: string;
+};
+
+/**
+ * Cross-entity search. Every branch is scoped to what the caller may see:
+ * projects/tasks/files are limited to viewable project IDs, so search can
+ * never become a way to discover restricted work.
+ */
+export async function globalSearch(query: string): Promise<SearchHit[]> {
+  const me = await requireAuth();
+  const q = query.trim();
+  if (q.length < 2) return [];
+
+  const { getViewableProjectIds } = await import("./permissions");
+  const viewable = await getViewableProjectIds(me);
+  const hits: SearchHit[] = [];
+
+  // SQLite (dev) is case-insensitive by default; Postgres needs `mode`.
+  const contains = { contains: q, mode: "insensitive" as const };
+
+  const [projects, tasks, files, people] = await Promise.all([
+    prisma.project.findMany({
+      where: {
+        id: { in: viewable },
+        archived: false,
+        OR: [{ title: contains }, { address: contains }, { city: contains }, { ownerName: contains }, { ownerCompany: contains }],
+      },
+      select: { id: true, title: true, category: true, status: true, city: true, state: true },
+      take: 8,
+    }),
+    prisma.todo.findMany({
+      where: {
+        text: contains,
+        OR: [{ assigneeId: me.id }, { projectId: { in: viewable } }],
+      },
+      include: { project: { select: { id: true, title: true } }, assignee: { select: { name: true } } },
+      take: 8,
+    }),
+    prisma.projectFile.findMany({
+      where: { filename: contains, projectId: { in: viewable } },
+      include: { project: { select: { id: true, title: true } } },
+      take: 6,
+    }),
+    prisma.teamMember.findMany({
+      where: { OR: [{ name: contains }, { email: contains }, { title: contains }] },
+      select: { id: true, name: true, title: true, email: true, role: true },
+      take: 6,
+    }),
+  ]);
+
+  for (const p of projects) {
+    hits.push({
+      type: "project",
+      id: p.id,
+      title: p.title,
+      subtitle: [p.category, [p.city, p.state].filter(Boolean).join(", ")].filter(Boolean).join(" · "),
+      href: `/projects/${p.id}`,
+      badge: p.status,
+    });
+  }
+  for (const t of tasks) {
+    hits.push({
+      type: "task",
+      id: t.id,
+      title: t.text,
+      subtitle: `${t.project.title}${t.assignee ? ` · ${t.assignee.name}` : " · unassigned"}`,
+      href: `/tasks`,
+      badge: t.done ? "Done" : undefined,
+    });
+  }
+  for (const f of files) {
+    hits.push({
+      type: "file",
+      id: f.id,
+      title: f.filename,
+      subtitle: f.project.title,
+      href: `/projects/${f.projectId}`,
+    });
+  }
+  for (const p of people) {
+    hits.push({
+      type: "person",
+      id: p.id,
+      title: p.name,
+      subtitle: [p.title, p.email].filter(Boolean).join(" · ") || "Team member",
+      href: `/team`,
+      badge: p.role === "ADMIN" ? "Admin" : undefined,
+    });
+  }
+
+  return hits;
+}
+
+// ---------- Saved views ----------
+
+export async function saveView(name: string, scope: string, filters: Record<string, unknown>, shared: boolean) {
+  const me = await requireAuth();
+  if (!name?.trim()) throw new Error("Give this view a name.");
+  // Only admins can push a view to the whole team.
+  const isShared = shared && me.role === "ADMIN";
+  const view = await prisma.savedView.create({
+    data: { ownerId: me.id, name: name.trim(), scope, filters: JSON.stringify(filters), shared: isShared },
+  });
+  revalidatePath("/tasks");
+  return { ok: true, id: view.id };
+}
+
+export async function deleteSavedView(id: string) {
+  const me = await requireAuth();
+  const view = await prisma.savedView.findUnique({ where: { id } });
+  if (!view) return { ok: true };
+  if (view.ownerId !== me.id && me.role !== "ADMIN") throw new Error("You can only delete your own views.");
+  await prisma.savedView.delete({ where: { id } });
+  revalidatePath("/tasks");
+  return { ok: true };
+}
+
+// ---------- Bulk task actions ----------
+
+/**
+ * Apply one change to many tasks. Permission is checked per task, and tasks
+ * the caller can't edit are silently skipped rather than failing the whole
+ * batch — so a partial selection still does useful work.
+ */
+export async function bulkUpdateTasks(
+  todoIds: string[],
+  action: { type: "assign"; assigneeId: string | null } | { type: "due"; dueDate: string | null } | { type: "complete"; done: boolean } | { type: "delete" }
+): Promise<{ updated: number; skipped: number }> {
+  const me = await requireAuth();
+  if (todoIds.length === 0) return { updated: 0, skipped: 0 };
+
+  const todos = await prisma.todo.findMany({
+    where: { id: { in: todoIds } },
+    include: { project: { select: { id: true, title: true } } },
+  });
+
+  let updated = 0;
+  let skipped = 0;
+  const touchedProjects = new Set<string>();
+
+  for (const t of todos) {
+    const perms = await getProjectPermissions(me, t.projectId);
+    const isAssignee = t.assigneeId === me.id;
+    const allowed = action.type === "complete" ? perms.canEditTodos || isAssignee : perms.canEditTodos;
+    if (!allowed) {
+      skipped++;
+      continue;
+    }
+
+    if (action.type === "delete") {
+      await prisma.todo.delete({ where: { id: t.id } });
+    } else if (action.type === "assign") {
+      await prisma.todo.update({ where: { id: t.id }, data: { assigneeId: action.assigneeId || null } });
+      if (action.assigneeId && action.assigneeId !== me.id) {
+        await prisma.notification.create({
+          data: {
+            recipientId: action.assigneeId,
+            type: "TASK_ASSIGNED",
+            title: `Task assigned to you by ${me.name}`,
+            body: `${t.text} — ${t.project.title}`,
+            link: "/tasks",
+          },
+        });
+      }
+    } else if (action.type === "due") {
+      await prisma.todo.update({
+        where: { id: t.id },
+        data: { dueDate: action.dueDate ? new Date(action.dueDate) : null },
+      });
+    } else if (action.type === "complete") {
+      await prisma.todo.update({ where: { id: t.id }, data: { done: action.done } });
+    }
+
+    touchedProjects.add(t.projectId);
+    updated++;
+  }
+
+  // One activity line per project rather than per task — keeps the feed readable.
+  const verb =
+    action.type === "delete"
+      ? "Deleted"
+      : action.type === "assign"
+      ? "Reassigned"
+      : action.type === "due"
+      ? "Rescheduled"
+      : action.done
+      ? "Completed"
+      : "Reopened";
+  for (const pid of Array.from(touchedProjects)) {
+    const n = todos.filter((t) => t.projectId === pid).length;
+    await logActivity({
+      projectId: pid,
+      actor: me,
+      action: action.type === "delete" ? "task.deleted" : "task.updated",
+      summary: `${verb} ${n} task${n === 1 ? "" : "s"} in bulk`,
+      meta: { count: n, action: action.type },
+    });
+    revalidatePath(`/projects/${pid}`);
+  }
+
+  revalidatePath("/tasks");
+  revalidatePath("/dashboard");
+  return { updated, skipped };
 }

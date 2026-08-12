@@ -3,6 +3,7 @@ import { getCurrentMember } from "@/lib/auth";
 import SignOutButton from "@/components/SignOutButton";
 import NotificationBell from "@/components/NotificationBell";
 import AlertPopup from "@/components/AlertPopup";
+import GlobalSearch from "@/components/GlobalSearch";
 import { getPendingAlerts } from "@/lib/actions";
 import { prisma } from "@/lib/prisma";
 
@@ -54,6 +55,7 @@ export default async function Navbar({ active }: { active: string }) {
           </nav>
         </div>
         <div className="flex items-center gap-3">
+          {member && <GlobalSearch />}
           {member && <NotificationBell notifications={notifications || []} />}
           {member && (
             <span

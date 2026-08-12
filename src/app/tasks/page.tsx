@@ -53,12 +53,16 @@ export default async function TasksPage() {
     createdByName: t.createdBy?.name ?? null,
   }));
 
-  const [teamMembers, editableProjects] = await Promise.all([
+  const [teamMembers, editableProjects, views] = await Promise.all([
     prisma.teamMember.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.project.findMany({
       where: { id: { in: editableIds }, archived: false },
       select: { id: true, title: true },
       orderBy: { title: "asc" },
+    }),
+    prisma.savedView.findMany({
+      where: { scope: "tasks", OR: [{ ownerId: me.id }, { shared: true }] },
+      orderBy: { createdAt: "asc" },
     }),
   ]);
 
@@ -77,6 +81,13 @@ export default async function TasksPage() {
           currentMemberId={me.id}
           canEditProjectIds={editableIds}
           isAdmin={isAdmin}
+          savedViews={views.map((v) => ({
+            id: v.id,
+            name: v.name,
+            filters: v.filters,
+            shared: v.shared,
+            isMine: v.ownerId === me.id,
+          }))}
         />
       </main>
     </div>
