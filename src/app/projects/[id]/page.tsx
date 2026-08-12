@@ -13,6 +13,8 @@ import CompletionRing from "@/components/CompletionRing";
 import ShareSummary from "@/components/ShareSummary";
 import ProjectAccessPanel from "@/components/ProjectAccessPanel";
 import ReportSubscriptions from "@/components/ReportSubscriptions";
+import SiteDetailsForm from "@/components/SiteDetailsForm";
+import RebatePanel from "@/components/RebatePanel";
 import FinancialsDetail from "@/components/FinancialsDetail";
 import FinancialsLocked from "@/components/FinancialsLocked";
 import { toggleTodo, toggleQuestion } from "@/lib/actions";
@@ -46,6 +48,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
       todos: { orderBy: { order: "asc" }, include: { assignee: { select: { id: true, name: true } } } },
       questions: { orderBy: { order: "asc" } },
       files: { orderBy: { uploadedAt: "desc" } },
+      rebates: { orderBy: { order: "asc" } },
     },
   });
   if (!project) notFound();
@@ -238,6 +241,51 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
               {project.questions.length === 0 && <p className="text-sm text-brand-inkFaint">No open questions.</p>}
             </div>
           </div>
+
+          {/* Site & Owner */}
+          <div className="p-5 border-b border-brand-line">
+            <p className="kicker mb-3">Site &amp; Owner</p>
+            <SiteDetailsForm
+              projectId={project.id}
+              canEdit={isAdmin || perms.canEditTeam}
+              initial={{
+                address: project.address || "",
+                city: project.city || "",
+                state: project.state || "",
+                postalCode: project.postalCode || "",
+                latitude: project.latitude,
+                longitude: project.longitude,
+                ownerName: project.ownerName || "",
+                ownerCompany: project.ownerCompany || "",
+                ownerEmail: project.ownerEmail || "",
+                ownerPhone: project.ownerPhone || "",
+                ownerNotes: project.ownerNotes || "",
+              }}
+            />
+          </div>
+
+          {/* Incentives — financial in nature, so gated on financial permission */}
+          {perms.canViewFinancials && (
+            <div className="p-5 border-b border-brand-line">
+              <p className="kicker mb-3">Rebates &amp; Incentives</p>
+              <RebatePanel
+                projectId={project.id}
+                state={project.state}
+                canEdit={perms.canEditFinancials}
+                initial={project.rebates.map((r) => ({
+                  name: r.name,
+                  authority: r.authority || "State",
+                  category: r.category,
+                  incentiveType: r.incentiveType,
+                  value: r.value,
+                  estimatedAmount: r.estimatedAmount,
+                  status: r.status,
+                  sourceUrl: r.sourceUrl || "",
+                  notes: r.notes || "",
+                }))}
+              />
+            </div>
+          )}
 
           {/* Files */}
           {perms.canViewFiles && (

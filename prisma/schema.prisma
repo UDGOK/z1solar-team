@@ -85,6 +85,23 @@ model Project {
   q2Proj       Float           @default(0)
   notes        String?
 
+  // Site / location
+  address       String?
+  city          String?
+  state         String?   // 2-letter, drives rebate lookups
+  postalCode    String?
+  latitude      Float?
+  longitude     Float?
+
+  // Owner / client contact
+  ownerName     String?
+  ownerCompany  String?
+  ownerEmail    String?
+  ownerPhone    String?
+  ownerNotes    String?
+
+  rebates       ProjectRebate[]
+
   // progress
   status        String        @default("Planning") // "Planning" | "On Track" | "At Risk" | "Delayed" | "Complete"
   completionPct Int           @default(0) // 0-100, set by the project lead
@@ -237,6 +254,29 @@ model FinancialLineItem {
   order       Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([projectId])
+}
+
+// Incentives tracked per project. Values are entered and verified by a human —
+// nothing here is auto-guessed, because wrong incentive figures on a quote are
+// worse than no figures.
+model ProjectRebate {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name        String
+  authority   String?  // Federal / State / Utility / Local
+  category    String   @default("Solar") // Solar | BESS | EV | Efficiency | Other
+  incentiveType String @default("Percentage") // Percentage | PerWatt | Fixed | PerKWh
+  value       Float    @default(0)
+  estimatedAmount Float @default(0)
+  status      String   @default("Researching") // Researching | Eligible | Applied | Awarded | Denied
+  sourceUrl   String?
+  notes       String?
+  verifiedAt  DateTime?
+  order       Int      @default(0)
 
   @@index([projectId])
 }

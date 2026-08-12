@@ -823,3 +823,100 @@ export async function sendWeeklyReportsNow(): Promise<{ sent: number; skipped: n
   const { sendWeeklyReports } = await import("./weeklyReport");
   return sendWeeklyReports(await appUrl());
 }
+
+// ---------- Site details, owner, geocoding ----------
+
+export type SiteInput = {
+  address?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  ownerName?: string;
+  ownerCompany?: string;
+  ownerEmail?: string;
+  ownerPhone?: string;
+  ownerNotes?: string;
+};
+
+export async function updateProjectSite(projectId: string, data: SiteInput) {
+  const me = await requireAuth();
+  const perms = await getProjectPermissions(me, projectId);
+  // Site/owner details are project-level metadata — gated on admin or the
+  // broader "edit team" permission rather than inventing another flag.
+  if (me.role !== "ADMIN" && !perms.canEditTeam) {
+    throw new Error("You don't have permission to edit site details on this project.");
+  }
+  await prisma.project.update({
+    where: { id: projectId },
+    data: {
+      address: data.address?.trim() || null,
+      city: data.city?.trim() || null,
+      state: data.state?.trim().toUpperCase().slice(0, 2) || null,
+      postalCode: data.postalCode?.trim() || null,
+      latitude: typeof data.latitude === "number" && Number.isFinite(data.latitude) ? data.latitude : null,
+      longitude: typeof data.longitude === "number" && Number.isFinite(data.longitude) ? data.longitude : null,
+      ownerName: data.ownerName?.trim() || null,
+      ownerCompany: data.ownerCompany?.trim() || null,
+      ownerEmail: data.ownerEmail?.trim() || null,
+      ownerPhone: data.ownerPhone?.trim() || null,
+      ownerNotes: data.ownerNotes?.trim() || null,
+    },
+  });
+  revalidatePath(`/projects/${projectId}`);
+  return { ok: true };
+}
+
+/** Look up coordinates for an address. Returns null rather than throwing if the service is unreachable. */
+export async function lookupCoordinates(address: string) {
+  await requireAuth();
+  const { geocodeAddress } = await import("./geo");
+  const res = await geocodeAddress(address);
+  return res;
+}
+
+// ---------- Project rebates ----------
+
+export type RebateInput = {
+  name: string;
+  authority?: string;
+  category: string;
+  incentiveType: string;
+  value: number;
+  estimatedAmount: number;
+  status: string;
+  sourceUrl?: string;
+  notes?: string;
+};
+
+export async function saveRebates(projectId: string, items: RebateInput[]) {
+  const me = await requireAuth();
+  const perms = await getProjectPermissions(me, projectId);
+  // Rebates are financial in nature, so they follow financial permissions.
+  if (!perms.canEditFinancials) {
+    throw new Error("You don't have permission to edit incentives on this project.");
+  }
+  const rows = items
+    .filter((r) => r.name?.trim())
+    .map((r, order) => ({
+      projectId,
+      name: r.name.trim(),
+      authority: r.authority?.trim() || null,
+      category: r.category || "Solar",
+      incentiveType: r.incentiveType || "Percentage",
+      value: Number(r.value) || 0,
+      estimatedAmount: Number(r.estimatedAmount) || 0,
+      status: r.status || "Researching",
+      sourceUrl: r.sourceUrl?.trim() || null,
+      notes: r.notes?.trim() || null,
+      order,
+    }));
+
+  await prisma.$transaction([
+    prisma.projectRebate.deleteMany({ where: { projectId } }),
+    ...(rows.length ? [prisma.projectRebate.createMany({ data: rows })] : []),
+  ]);
+  revalidatePath(`/projects/${projectId}`);
+  return { ok: true };
+}

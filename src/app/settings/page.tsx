@@ -44,6 +44,17 @@ export default async function SettingsPage() {
               members={allMembers.map((m) => ({ id: m.id, name: m.name, email: m.email, role: m.role }))}
               currentMemberId={member.id}
             />
+            <div className="card p-5 bg-white">
+              <p className="kicker mb-2">Backup</p>
+              <p className="text-xs text-brand-inkFaint mb-3">
+                Download a full JSON export of every project, task, financial line item, and team record.
+                Passwords and invite tokens are excluded. Uploaded files are referenced by URL rather than embedded.
+              </p>
+              <a href="/api/backup" className="btn-secondary text-xs" download>
+                ↓ Download Backup (JSON)
+              </a>
+            </div>
+
             <InviteManager
               members={allMembers.map((m) => ({
                 id: m.id,
