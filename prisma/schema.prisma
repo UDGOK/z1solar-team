@@ -47,6 +47,7 @@ model Project {
   questions    OpenQuestion[]
   files        ProjectFile[]
   access       ProjectAccess[]
+  lineItems    FinancialLineItem[]
 
   // financials
   estBudget    Float           @default(0)
@@ -180,6 +181,38 @@ model ProjectAccess {
   updatedAt DateTime @updatedAt
 
   @@unique([projectId, memberId])
+}
+
+// Project-level financial ledger. Each row is a budget line that can carry
+// actual spend, so budget-vs-actual variance is computed per line rather than
+// only in aggregate.
+model FinancialLineItem {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  category    String   @default("General") // e.g. Labor, Materials, Equipment, Permits
+  description String
+  vendor      String?
+
+  // Budget side — amount is qty * unitCost, stored so historical rows keep
+  // their value even if the formula changes later.
+  qty         Float    @default(1)
+  unitCost    Float    @default(0)
+  budgetAmount Float   @default(0)
+
+  // Actual side
+  actualAmount Float   @default(0)
+  invoiceRef   String?
+  paidDate     DateTime?
+  status       String   @default("Planned") // Planned | Committed | Invoiced | Paid
+
+  notes       String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId])
 }
 
 model Settings {

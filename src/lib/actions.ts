@@ -669,3 +669,67 @@ export async function updateHighlightTitle(projectId: string, highlightTitle: st
   revalidatePath(`/projects/${projectId}`);
   return { ok: true };
 }
+
+// ---------- Financial line items ----------
+
+export type LineItemInput = {
+  category: string;
+  description: string;
+  vendor?: string;
+  qty: number;
+  unitCost: number;
+  actualAmount: number;
+  invoiceRef?: string;
+  paidDate?: string | null;
+  status: string;
+  notes?: string;
+};
+
+/** Replace the whole ledger for a project in one save (mirrors the grid UI). */
+export async function saveLineItems(projectId: string, items: LineItemInput[]) {
+  const me = await requireAuth();
+  const perms = await getProjectPermissions(me, projectId);
+  if (!perms.canEditFinancials) throw new Error("You don't have permission to edit financials on this project.");
+
+  const rows = items
+    .filter((i) => i.description?.trim())
+    .map((i, order) => ({
+      projectId,
+      category: i.category?.trim() || "General",
+      description: i.description.trim(),
+      vendor: i.vendor?.trim() || null,
+      qty: Number(i.qty) || 0,
+      unitCost: Number(i.unitCost) || 0,
+      // budgetAmount is derived, never trusted from the client
+      budgetAmount: (Number(i.qty) || 0) * (Number(i.unitCost) || 0),
+      actualAmount: Number(i.actualAmount) || 0,
+      invoiceRef: i.invoiceRef?.trim() || null,
+      paidDate: i.paidDate ? new Date(i.paidDate) : null,
+      status: i.status || "Planned",
+      notes: i.notes?.trim() || null,
+      order,
+    }));
+
+  await prisma.$transaction([
+    prisma.financialLineItem.deleteMany({ where: { projectId } }),
+    ...(rows.length ? [prisma.financialLineItem.createMany({ data: rows })] : []),
+  ]);
+
+  // Keep the project's headline figures in sync with the ledger, so the
+  // dashboard/summary numbers can't drift away from the line items.
+  const budgetTotal = rows.reduce((s, r) => s + r.budgetAmount, 0);
+  const actualTotal = rows.reduce((s, r) => s + r.actualAmount, 0);
+  const committedTotal = rows
+    .filter((r) => ["Committed", "Invoiced", "Paid"].includes(r.status))
+    .reduce((s, r) => s + r.budgetAmount, 0);
+
+  await prisma.project.update({
+    where: { id: projectId },
+    data: { estBudget: budgetTotal, actualSpend: actualTotal, committed: committedTotal },
+  });
+
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath(`/projects/${projectId}/financials`);
+  revalidatePath("/dashboard");
+  return { ok: true };
+}

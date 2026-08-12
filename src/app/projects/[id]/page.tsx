@@ -88,6 +88,11 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
             <h1 className="font-heading text-3xl font-extrabold text-brand-ink">{project.title}</h1>
           </div>
           <div className="flex gap-2 shrink-0">
+            {perms.canViewFinancials && (
+              <Link href={`/projects/${project.id}/financials`} className="btn-secondary text-xs">
+                Financials
+              </Link>
+            )}
             {canEditAnything && (
               <Link href={`/projects/${project.id}/edit`} className="btn-secondary text-xs">
                 Edit
