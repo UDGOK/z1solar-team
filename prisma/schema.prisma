@@ -29,6 +29,31 @@ model TeamMember {
   assignedTodos Todo[]        @relation("TodoAssignee")
   createdTodos  Todo[]        @relation("TodoCreator")
   notifications Notification[] @relation("NotificationRecipient")
+  subscriptions ReportSubscription[]
+  emailOnTaskAssigned Boolean @default(true)
+}
+
+// Per-person, per-project weekly report subscription. Admin picks exactly
+// which sections each person receives — a person can be subscribed to a
+// project's status without ever seeing its financials, and vice versa.
+model ReportSubscription {
+  id        String     @id @default(cuid())
+  projectId String
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  memberId  String
+  member    TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  enabled          Boolean @default(true)
+  includeStatus    Boolean @default(true)
+  includeTasks     Boolean @default(true)
+  includeKeyDates  Boolean @default(false)
+  includeQuestions Boolean @default(false)
+  includeFinancials Boolean @default(false)
+
+  lastSentAt DateTime?
+  updatedAt  DateTime @updatedAt
+
+  @@unique([projectId, memberId])
 }
 
 model Project {
@@ -48,6 +73,7 @@ model Project {
   files        ProjectFile[]
   access       ProjectAccess[]
   lineItems    FinancialLineItem[]
+  subscriptions ReportSubscription[]
 
   // financials
   estBudget    Float           @default(0)

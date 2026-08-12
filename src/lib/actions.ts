@@ -542,6 +542,45 @@ export async function changeOwnPassword(
 
 // ---------- Standalone task creation & assignment ----------
 
+/** Absolute app URL derived from the live request (works on any domain). */
+async function appUrl(): Promise<string> {
+  const { headers } = await import("next/headers");
+  const h = headers();
+  const host = h.get("x-forwarded-host") || h.get("host");
+  const proto = h.get("x-forwarded-proto") || (host?.includes("localhost") ? "http" : "https");
+  return host ? `${proto}://${host}` : process.env.NEXTAUTH_URL || "";
+}
+
+/** Fire-and-forget task email. Never blocks or fails the calling action. */
+async function notifyAssigneeByEmail(opts: {
+  assigneeId: string;
+  assignerName: string;
+  taskText: string;
+  projectTitle: string;
+  dueDate: Date | null;
+}) {
+  try {
+    const assignee = await prisma.teamMember.findUnique({ where: { id: opts.assigneeId } });
+    if (!assignee?.email || !assignee.emailOnTaskAssigned) return;
+    const { sendEmail, taskAssignedEmail } = await import("./email");
+    const url = await appUrl();
+    await sendEmail({
+      to: assignee.email,
+      subject: `New task: ${opts.taskText.slice(0, 60)}`,
+      html: taskAssignedEmail({
+        assigneeName: assignee.name,
+        assignerName: opts.assignerName,
+        taskText: opts.taskText,
+        projectTitle: opts.projectTitle,
+        dueDate: opts.dueDate,
+        appUrl: url,
+      }),
+    });
+  } catch (e) {
+    console.error("[task email] failed:", e);
+  }
+}
+
 /**
  * Create a task from anywhere (My Tasks, project page). The assignee does NOT
  * need project access — assigning a task is itself the grant to see that task.
@@ -588,6 +627,13 @@ export async function createTask(data: {
         link: `/my-tasks`,
       },
     });
+    await notifyAssigneeByEmail({
+      assigneeId: todo.assigneeId,
+      assignerName: me.name,
+      taskText: todo.text,
+      projectTitle: todo.project.title,
+      dueDate: todo.dueDate,
+    });
   }
 
   revalidatePath("/my-tasks");
@@ -618,6 +664,13 @@ export async function reassignTask(todoId: string, assigneeId: string | null) {
         body: `${todo.text} — ${todo.project.title}`,
         link: `/my-tasks`,
       },
+    });
+    await notifyAssigneeByEmail({
+      assigneeId,
+      assignerName: me.name,
+      taskText: todo.text,
+      projectTitle: todo.project.title,
+      dueDate: todo.dueDate,
     });
   }
 
@@ -732,4 +785,41 @@ export async function saveLineItems(projectId: string, items: LineItemInput[]) {
   revalidatePath(`/projects/${projectId}/financials`);
   revalidatePath("/dashboard");
   return { ok: true };
+}
+
+// ---------- Weekly report subscriptions (admin-only) ----------
+
+export type SubscriptionInput = {
+  enabled: boolean;
+  includeStatus: boolean;
+  includeTasks: boolean;
+  includeKeyDates: boolean;
+  includeQuestions: boolean;
+  includeFinancials: boolean;
+};
+
+export async function setReportSubscription(projectId: string, memberId: string, data: SubscriptionInput) {
+  await requireAdmin();
+  await prisma.reportSubscription.upsert({
+    where: { projectId_memberId: { projectId, memberId } },
+    create: { projectId, memberId, ...data },
+    update: data,
+  });
+  revalidatePath(`/projects/${projectId}`);
+  return { ok: true };
+}
+
+/** Let anyone turn their own task emails on/off. */
+export async function setOwnEmailPrefs(emailOnTaskAssigned: boolean) {
+  const me = await requireAuth();
+  await prisma.teamMember.update({ where: { id: me.id }, data: { emailOnTaskAssigned } });
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+/** Admin fires the weekly digest immediately, for testing or off-cycle sends. */
+export async function sendWeeklyReportsNow(): Promise<{ sent: number; skipped: number; errors: string[] }> {
+  await requireAdmin();
+  const { sendWeeklyReports } = await import("./weeklyReport");
+  return sendWeeklyReports(await appUrl());
 }

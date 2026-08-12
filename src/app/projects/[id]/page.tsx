@@ -12,6 +12,7 @@ import FileUploader from "@/components/FileUploader";
 import CompletionRing from "@/components/CompletionRing";
 import ShareSummary from "@/components/ShareSummary";
 import ProjectAccessPanel from "@/components/ProjectAccessPanel";
+import ReportSubscriptions from "@/components/ReportSubscriptions";
 import FinancialsDetail from "@/components/FinancialsDetail";
 import FinancialsLocked from "@/components/FinancialsLocked";
 import { toggleTodo, toggleQuestion } from "@/lib/actions";
@@ -74,6 +75,32 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
             ALL_PERMISSIONS.map((perm) => [perm.key, row ? (row as any)[perm.key] === true : false])
           ) as Record<Permission, boolean>;
           return { memberId: m.id, name: m.name, perms: p };
+        });
+      })()
+    : [];
+
+  const subRows = isAdmin
+    ? await (async () => {
+        const [people, subs, access] = await Promise.all([
+          prisma.teamMember.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, email: true, role: true } }),
+          prisma.reportSubscription.findMany({ where: { projectId: project.id } }),
+          prisma.projectAccess.findMany({ where: { projectId: project.id } }),
+        ]);
+        return people.map((p) => {
+          const sub = subs.find((x) => x.memberId === p.id);
+          const acc = access.find((x) => x.memberId === p.id);
+          return {
+            memberId: p.id,
+            name: p.name,
+            email: p.email,
+            enabled: sub?.enabled ?? false,
+            includeStatus: sub?.includeStatus ?? true,
+            includeTasks: sub?.includeTasks ?? true,
+            includeKeyDates: sub?.includeKeyDates ?? false,
+            includeQuestions: sub?.includeQuestions ?? false,
+            includeFinancials: sub?.includeFinancials ?? false,
+            canSeeFinancials: p.role === "ADMIN" || !!(acc?.canView && acc.canViewFinancials),
+          };
         });
       })()
     : [];
@@ -238,6 +265,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
           )}
 
           {isAdmin && <ProjectAccessPanel projectId={project.id} rows={accessRows} />}
+          {isAdmin && <ReportSubscriptions projectId={project.id} rows={subRows} />}
         </div>
       </main>
     </div>
