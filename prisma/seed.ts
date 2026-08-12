@@ -1,5 +1,4 @@
 import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
@@ -180,13 +179,10 @@ async function main() {
     memberByName.set(t.name, member.id);
   }
 
-  console.log("Seeding settings (password, org name)…");
+  console.log("Seeding settings (org name)…");
   const existingSettings = await prisma.settings.findUnique({ where: { id: "singleton" } });
   if (!existingSettings) {
-    const initialPassword = process.env.TEAM_PASSWORD || "z1power2026";
-    const passwordHash = await bcrypt.hash(initialPassword, 10);
-    await prisma.settings.create({ data: { id: "singleton", passwordHash, orgName: "Z1Power" } });
-    console.log(`  Default team password set to: ${initialPassword} (change it in Settings after first login)`);
+    await prisma.settings.create({ data: { id: "singleton", orgName: "Z1Power" } });
   }
 
   console.log("Seeding projects…");
@@ -210,30 +206,33 @@ async function main() {
     console.log(`  Created "${p.title}"`);
   }
 
-  // Bootstrap the first admin account. Without this, there's a chicken-and-egg
-  // problem — no admin exists yet to promote anyone from the Settings UI.
-  // Safe to re-run: if Yasir is already an admin, this does nothing.
-  console.log("Bootstrapping first admin account…");
-  const bootstrapAdmin = await prisma.teamMember.findFirst({ where: { name: "Yasir" } });
-  if (bootstrapAdmin && bootstrapAdmin.role !== "ADMIN") {
-    const adminEmail = bootstrapAdmin.email || "yasir@z1power-admin.local";
-    const adminPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD || "Z1PowerAdmin2026!";
-    const passwordHash = await bcrypt.hash(adminPassword, 10);
-    await prisma.teamMember.update({
-      where: { id: bootstrapAdmin.id },
-      data: { role: "ADMIN", email: adminEmail, passwordHash },
-    });
-    console.log(`  Yasir promoted to ADMIN.`);
-    console.log(`  Admin login — email: ${adminEmail}  password: ${adminPassword}`);
-    console.log(`  Change this password immediately from Settings after logging in.`);
-    if (!bootstrapAdmin.email) {
-      console.log(`  Note: no email was on file for Yasir, so a placeholder was used.`);
-      console.log(`  Update it in Team Directory to your real email before relying on this login.`);
+  // Bootstrap the founding admins. There's no password anymore — Google
+  // handles identity — so this just sets each person's real sign-in email
+  // and promotes them to ADMIN. Safe to re-run: already-correct records are
+  // left alone.
+  console.log("Bootstrapping admin accounts…");
+  const ADMIN_ACCOUNTS = [
+    { name: "Yasir", email: "yasir@futonix.com" },
+    { name: "Mohammad", email: "muzz.siddiki@gmail.com" },
+  ];
+  for (const a of ADMIN_ACCOUNTS) {
+    const found = await prisma.teamMember.findFirst({ where: { name: a.name } });
+    if (!found) {
+      console.log(`  No team member named "${a.name}" found — skipping.`);
+      continue;
     }
-  } else if (bootstrapAdmin) {
-    console.log(`  Yasir is already an admin — skipping.`);
-  } else {
-    console.log(`  No team member named "Yasir" found — skipping admin bootstrap.`);
+    if (found.role === "ADMIN" && found.email === a.email) {
+      console.log(`  ${a.name} is already an admin with the correct email — skipping.`);
+      continue;
+    }
+    // Email must be unique — if another record already has this email
+    // (shouldn't happen in normal use), this will throw loudly rather than
+    // silently overwrite someone else's login.
+    await prisma.teamMember.update({
+      where: { id: found.id },
+      data: { role: "ADMIN", email: a.email },
+    });
+    console.log(`  ${a.name} promoted to ADMIN — signs in with Google using: ${a.email}`);
   }
 
   console.log("Done.");

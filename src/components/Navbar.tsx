@@ -1,7 +1,6 @@
 import Link from "next/link";
-import { logout } from "@/lib/actions";
-import { getSession } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { getCurrentMember } from "@/lib/auth";
+import SignOutButton from "@/components/SignOutButton";
 
 const links = [
   { href: "/dashboard", label: "Dashboard" },
@@ -11,12 +10,8 @@ const links = [
 ];
 
 export default async function Navbar({ active }: { active: string }) {
-  const session = await getSession();
-  let badgeLabel = "TEAM";
-  if (session?.role === "ADMIN" && session.adminId) {
-    const admin = await prisma.teamMember.findUnique({ where: { id: session.adminId }, select: { name: true } });
-    badgeLabel = admin ? `ADMIN — ${admin.name.toUpperCase()}` : "ADMIN";
-  }
+  const member = await getCurrentMember();
+  const badgeLabel = member ? `${member.role === "ADMIN" ? "ADMIN" : "MEMBER"} — ${member.name.toUpperCase()}` : "";
 
   return (
     <header className="border-b-2 border-brand-green bg-white sticky top-0 z-10">
@@ -43,18 +38,16 @@ export default async function Navbar({ active }: { active: string }) {
           </nav>
         </div>
         <div className="flex items-center gap-3">
-          <span
-            className={`hidden sm:inline-block px-2 py-1 rounded text-[10px] font-mono font-bold tracking-wider text-white ${
-              session?.role === "ADMIN" ? "bg-brand-amber" : "bg-brand-inkFaint"
-            }`}
-          >
-            {badgeLabel}
-          </span>
-          <form action={logout}>
-            <button type="submit" className="btn-secondary !px-3 !py-1.5 text-xs">
-              Sign Out
-            </button>
-          </form>
+          {member && (
+            <span
+              className={`hidden sm:inline-block px-2 py-1 rounded text-[10px] font-mono font-bold tracking-wider text-white ${
+                member.role === "ADMIN" ? "bg-brand-amber" : "bg-brand-inkFaint"
+              }`}
+            >
+              {badgeLabel}
+            </span>
+          )}
+          <SignOutButton />
         </div>
       </div>
       <nav className="sm:hidden flex items-center gap-1 px-4 pb-2 overflow-x-auto">

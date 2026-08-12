@@ -5,7 +5,7 @@ import { updateTeamMember, deleteTeamMember } from "@/lib/actions";
 
 type Member = { id: string; name: string; title: string | null; email: string | null; phone: string | null };
 
-export default function TeamMemberRow({ member, zebra }: { member: Member; zebra: boolean }) {
+export default function TeamMemberRow({ member, zebra, editable }: { member: Member; zebra: boolean; editable: boolean }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(member.name);
   const [title, setTitle] = useState(member.title || "");
@@ -58,14 +58,16 @@ export default function TeamMemberRow({ member, zebra }: { member: Member; zebra
       <td className="px-4 py-2 text-brand-greenDark">{member.title || <span className="text-brand-inkFaint italic">— add title —</span>}</td>
       <td className="px-4 py-2">{member.email || <span className="text-brand-inkFaint italic">— add email —</span>}</td>
       <td className="px-4 py-2">{member.phone || <span className="text-brand-inkFaint italic">— add phone —</span>}</td>
-      <td className="px-4 py-2 whitespace-nowrap">
-        <button onClick={() => setEditing(true)} className="btn-secondary text-xs mr-1">
-          Edit
-        </button>
-        <button onClick={remove} disabled={isPending} className="btn-danger text-xs">
-          Remove
-        </button>
-      </td>
+      {editable && (
+        <td className="px-4 py-2 whitespace-nowrap">
+          <button onClick={() => setEditing(true)} className="btn-secondary text-xs mr-1">
+            Edit
+          </button>
+          <button onClick={remove} disabled={isPending} className="btn-danger text-xs">
+            Remove
+          </button>
+        </td>
+      )}
     </tr>
   );
 }

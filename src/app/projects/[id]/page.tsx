@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePageAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { canViewProject, canViewProjectFinancials } from "@/lib/permissions";
 import Navbar from "@/components/Navbar";
 import ToggleCheckbox from "@/components/ToggleCheckbox";
 import DeleteProjectButton from "@/components/DeleteProjectButton";
@@ -9,6 +10,7 @@ import ProjectFiles from "@/components/ProjectFiles";
 import FileUploader from "@/components/FileUploader";
 import CompletionRing from "@/components/CompletionRing";
 import ShareSummary from "@/components/ShareSummary";
+import ProjectAccessPanel from "@/components/ProjectAccessPanel";
 import { toggleTodo, toggleQuestion } from "@/lib/actions";
 import { fmtMoney, fmtDate } from "@/lib/format";
 
@@ -22,8 +24,14 @@ const CAT_COLOR: Record<string, string> = {
 };
 
 export default async function ProjectDetailPage({ params }: { params: { id: string } }) {
-  const session = await requirePageAuth();
-  const isAdmin = session.role === "ADMIN";
+  const member = await requirePageAuth();
+  const isAdmin = member.role === "ADMIN";
+
+  const canSeeThis = await canViewProject(member, params.id);
+  if (!canSeeThis) notFound(); // hidden from this member — don't even reveal it exists
+
+  const canSeeFinancials = await canViewProjectFinancials(member, params.id);
+
   const project = await prisma.project.findUnique({
     where: { id: params.id },
     include: {
@@ -40,6 +48,24 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
 
   const totalProjected = project.q3Proj + project.q4Proj + project.q1Proj + project.q2Proj;
   const remaining = project.estBudget - project.actualSpend;
+
+  const accessRows = isAdmin
+    ? await (async () => {
+        const [allMembers, existingAccess] = await Promise.all([
+          prisma.teamMember.findMany({ where: { role: "MEMBER" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+          prisma.projectAccess.findMany({ where: { projectId: project.id } }),
+        ]);
+        return allMembers.map((m) => {
+          const existing = existingAccess.find((a) => a.memberId === m.id);
+          return {
+            memberId: m.id,
+            name: m.name,
+            hidden: existing?.hidden || false,
+            financialsVisible: existing?.financialsVisible || false,
+          };
+        });
+      })()
+    : [];
 
   return (
     <div className="min-h-screen bg-brand-greenTint">
@@ -62,7 +88,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
           {/* Progress + Share */}
           <div className="p-5 border-b border-brand-line flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <CompletionRing pct={project.completionPct} status={project.status} />
-            {isAdmin && <ShareSummary projectId={project.id} projectTitle={project.title} />}
+            {canSeeFinancials && <ShareSummary projectId={project.id} projectTitle={project.title} />}
           </div>
 
           {/* Team */}
@@ -153,8 +179,8 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
             <ProjectFiles files={project.files} />
           </div>
 
-          {/* Financials — admin only */}
-          {isAdmin ? (
+          {/* Financials */}
+          {canSeeFinancials ? (
             <div className="p-5 bg-[#F2F7EF]">
               <p className="kicker mb-3">Financials & Budget</p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
@@ -179,7 +205,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
           ) : (
             <div className="p-5 bg-[#F2F7EF]">
               <p className="kicker mb-1">Financials & Budget</p>
-              <p className="text-xs text-brand-inkFaint italic">Visible to admins only.</p>
+              <p className="text-xs text-brand-inkFaint italic">Not visible on your account for this project.</p>
             </div>
           )}
 
@@ -189,6 +215,8 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
               <p className="text-sm italic text-brand-inkSoft">{project.notes}</p>
             </div>
           )}
+
+          {isAdmin && <ProjectAccessPanel projectId={project.id} rows={accessRows} />}
         </div>
       </main>
     </div>

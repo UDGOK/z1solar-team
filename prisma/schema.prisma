@@ -11,14 +11,14 @@ model TeamMember {
   id          String          @id @default(cuid())
   name        String
   title       String?
-  email       String?
+  email       String?         @unique // also their Google sign-in identity — must match exactly
   phone       String?
   role        String          @default("MEMBER") // "MEMBER" | "ADMIN"
-  passwordHash String?        // only set for ADMIN accounts (individual login)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   leads       Project[]       @relation("ProjectLead")
   memberships ProjectMember[]
+  access      ProjectAccess[]
 }
 
 model Project {
@@ -33,6 +33,7 @@ model Project {
   todos        Todo[]
   questions    OpenQuestion[]
   files        ProjectFile[]
+  access       ProjectAccess[]
 
   // financials
   estBudget    Float           @default(0)
@@ -112,9 +113,24 @@ model ProjectFile {
   uploadedAt  DateTime @default(now())
 }
 
+// Per-person, per-project overrides, set by an admin. Absence of a row means
+// the default applies: members can see the project but not its financials;
+// admins always see everything and never need a row here.
+model ProjectAccess {
+  id                String     @id @default(cuid())
+  projectId         String
+  project           Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  memberId          String
+  member            TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  hidden            Boolean    @default(false) // hide this project from this member entirely
+  financialsVisible Boolean    @default(false) // let this member see financials on this project
+  updatedAt         DateTime   @updatedAt
+
+  @@unique([projectId, memberId])
+}
+
 model Settings {
   id           String  @id @default("singleton")
-  passwordHash String
   whatsappLink String?
   meetingLink  String?
   orgName      String  @default("Z1Power")

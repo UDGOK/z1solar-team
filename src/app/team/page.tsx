@@ -9,7 +9,8 @@ import WhatsAppLinkForm from "@/components/WhatsAppLinkForm";
 export const dynamic = "force-dynamic";
 
 export default async function TeamPage() {
-  await requirePageAuth();
+  const member = await requirePageAuth();
+  const isAdmin = member.role === "ADMIN";
   const [members, settings] = await Promise.all([
     prisma.teamMember.findMany({ orderBy: { name: "asc" } }),
     getSettings(),
@@ -22,6 +23,9 @@ export default async function TeamPage() {
         <div>
           <p className="kicker mb-1">[ Z1POWER ]</p>
           <h1 className="font-heading text-3xl font-extrabold text-brand-ink">Team Directory</h1>
+          <p className="text-xs text-brand-inkFaint mt-1">
+            Each person's email here is exactly what they sign in with via Google.
+          </p>
         </div>
 
         <div className="bg-white border border-brand-line rounded-md overflow-hidden">
@@ -32,16 +36,16 @@ export default async function TeamPage() {
                 <th className="px-4 py-3 font-mono text-xs tracking-widest">TITLE</th>
                 <th className="px-4 py-3 font-mono text-xs tracking-widest">EMAIL</th>
                 <th className="px-4 py-3 font-mono text-xs tracking-widest">PHONE</th>
-                <th className="px-4 py-3 font-mono text-xs tracking-widest"></th>
+                {isAdmin && <th className="px-4 py-3 font-mono text-xs tracking-widest"></th>}
               </tr>
             </thead>
             <tbody>
               {members.map((m, i) => (
-                <TeamMemberRow key={m.id} member={m} zebra={i % 2 === 1} />
+                <TeamMemberRow key={m.id} member={m} zebra={i % 2 === 1} editable={isAdmin} />
               ))}
               {members.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-brand-inkFaint">
+                  <td colSpan={isAdmin ? 5 : 4} className="px-4 py-10 text-center text-brand-inkFaint">
                     No team members yet.
                   </td>
                 </tr>
@@ -50,7 +54,7 @@ export default async function TeamPage() {
           </table>
         </div>
 
-        <AddMemberForm />
+        {isAdmin && <AddMemberForm />}
 
         <WhatsAppLinkForm initialLink={settings.whatsappLink} />
       </main>

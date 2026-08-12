@@ -4,15 +4,13 @@ import { prisma } from "@/lib/prisma";
 import Navbar from "@/components/Navbar";
 import WhatsAppLinkForm from "@/components/WhatsAppLinkForm";
 import MeetingLinkForm from "@/components/MeetingLinkForm";
-import ChangePasswordForm from "@/components/ChangePasswordForm";
-import ChangeAdminPasswordForm from "@/components/ChangeAdminPasswordForm";
 import AdminManagement from "@/components/AdminManagement";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const session = await requirePageAuth();
-  const isAdmin = session.role === "ADMIN";
+  const member = await requirePageAuth();
+  const isAdmin = member.role === "ADMIN";
   const settings = await getSettings();
   const members = isAdmin
     ? await prisma.teamMember.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, email: true, role: true } })
@@ -30,14 +28,7 @@ export default async function SettingsPage() {
         <MeetingLinkForm initialLink={settings.meetingLink} />
         <WhatsAppLinkForm initialLink={settings.whatsappLink} />
 
-        {isAdmin ? (
-          <>
-            <AdminManagement members={members} currentAdminId={session.adminId} />
-            <ChangeAdminPasswordForm />
-          </>
-        ) : null}
-
-        <ChangePasswordForm />
+        {isAdmin && <AdminManagement members={members} currentMemberId={member.id} />}
       </main>
     </div>
   );

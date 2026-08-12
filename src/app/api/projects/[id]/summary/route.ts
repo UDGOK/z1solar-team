@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
-import { requirePageAdmin } from "@/lib/auth";
+import { requirePageAuth } from "@/lib/auth";
+import { canViewProjectFinancials } from "@/lib/permissions";
 import { loadProjectForPdf, renderProjectSummaryPdf, pdfFilename } from "@/lib/pdf/render";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
-  await requirePageAdmin(); // PDF includes financials — admins only
+  const member = await requirePageAuth();
+  const allowed = await canViewProjectFinancials(member, params.id);
+  if (!allowed) {
+    return NextResponse.json({ error: "You don't have financial access to this project." }, { status: 403 });
+  }
 
   const project = await loadProjectForPdf(params.id);
   if (!project) {

@@ -1,92 +1,46 @@
-import { cookies } from "next/headers";
-import crypto from "crypto";
+import { getServerSession } from "next-auth";
+import { authOptions } from "./authOptions";
+import { prisma } from "./prisma";
 
-const COOKIE_NAME = "z1_session";
-const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+export type CurrentMember = {
+  id: string;
+  name: string;
+  email: string;
+  role: "MEMBER" | "ADMIN";
+};
 
-export type SessionRole = "MEMBER" | "ADMIN";
-export type Session = { role: SessionRole; adminId?: string };
-
-function secret() {
-  const s = process.env.SESSION_SECRET;
-  if (!s) {
-    throw new Error(
-      "SESSION_SECRET is not set. Add it to your environment variables (any long random string)."
-    );
-  }
-  return s;
-}
-
-function sign(value: string) {
-  return crypto.createHmac("sha256", secret()).update(value).digest("hex");
-}
-
-function setSessionCookie(payload: string) {
-  const token = `${payload}.${sign(payload)}`;
-  cookies().set(COOKIE_NAME, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: MAX_AGE,
-  });
-}
-
-/** Shared team-password login — everyone who isn't an admin uses this. */
-export async function createMemberSession() {
-  setSessionCookie("member");
-}
-
-/** Individual admin login — payload carries which TeamMember is logged in. */
-export async function createAdminSession(adminId: string) {
-  setSessionCookie(`admin:${adminId}`);
-}
-
-export async function destroySession() {
-  cookies().delete(COOKIE_NAME);
-}
-
-/** Reads and verifies the session cookie. Returns null if missing/invalid/tampered. */
-export async function getSession(): Promise<Session | null> {
-  const token = cookies().get(COOKIE_NAME)?.value;
-  if (!token) return null;
-  const [payload, sig] = token.split(".");
-  if (!payload || !sig) return null;
-  try {
-    const expected = sign(payload);
-    const a = Buffer.from(sig);
-    const b = Buffer.from(expected);
-    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-  } catch {
-    return null;
-  }
-  if (payload === "member") return { role: "MEMBER" };
-  if (payload.startsWith("admin:")) return { role: "ADMIN", adminId: payload.slice(6) };
-  return null;
-}
-
-export async function isAuthenticated(): Promise<boolean> {
-  return (await getSession()) !== null;
+/**
+ * Returns the signed-in TeamMember, looked up fresh from the database on
+ * every call. This is deliberate: role and per-project access are DB state,
+ * not baked into the session token, so a permission change by an admin
+ * takes effect on the person's very next page load — not their next login.
+ */
+export async function getCurrentMember(): Promise<CurrentMember | null> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) return null;
+  const member = await prisma.teamMember.findUnique({ where: { email: session.user.email } });
+  if (!member) return null;
+  return { id: member.id, name: member.name, email: member.email!, role: member.role as "MEMBER" | "ADMIN" };
 }
 
 export async function isAdmin(): Promise<boolean> {
-  const session = await getSession();
-  return session?.role === "ADMIN";
+  const member = await getCurrentMember();
+  return member?.role === "ADMIN";
 }
 
-/** Call at the top of any protected Server Component page; redirects to /login if not authenticated. */
-export async function requirePageAuth(): Promise<Session> {
+/** Call at the top of any protected Server Component page; redirects to /login if not signed in. */
+export async function requirePageAuth(): Promise<CurrentMember> {
   const { redirect } = await import("next/navigation");
-  const session = await getSession();
-  if (!session) redirect("/login");
-  return session as Session;
+  const member = await getCurrentMember();
+  if (!member) redirect("/login");
+  return member as CurrentMember;
 }
 
 /** Call at the top of admin-only pages; redirects non-admins back to the dashboard. */
-export async function requirePageAdmin(): Promise<Session> {
+export async function requirePageAdmin(): Promise<CurrentMember> {
   const { redirect } = await import("next/navigation");
-  const session = await getSession();
-  if (!session) redirect("/login");
-  if (session!.role !== "ADMIN") redirect("/dashboard");
-  return session as Session;
+  const member = await getCurrentMember();
+  if (!member) redirect("/login");
+  if (member!.role !== "ADMIN") redirect("/dashboard");
+  return member as CurrentMember;
 }

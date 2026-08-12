@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requirePageAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getSettings } from "@/lib/settings";
+import { getHiddenProjectIds } from "@/lib/permissions";
 import Navbar from "@/components/Navbar";
 
 export const dynamic = "force-dynamic";
@@ -22,10 +23,10 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 export default async function DashboardPage() {
-  const session = await requirePageAuth();
-  const isAdmin = session.role === "ADMIN";
+  const member = await requirePageAuth();
+  const isAdmin = member.role === "ADMIN";
 
-  const [projects, teamCount, settings] = await Promise.all([
+  const [allProjects, teamCount, settings, hiddenIds] = await Promise.all([
     prisma.project.findMany({
       where: { archived: false },
       include: { lead: true, todos: true },
@@ -33,7 +34,9 @@ export default async function DashboardPage() {
     }),
     prisma.teamMember.count(),
     getSettings(),
+    getHiddenProjectIds(member),
   ]);
+  const projects = allProjects.filter((p) => !hiddenIds.has(p.id));
 
   const onTrack = projects.filter((p) => p.status === "On Track").length;
   const needsAttention = projects.filter((p) => p.status === "At Risk" || p.status === "Delayed").length;
