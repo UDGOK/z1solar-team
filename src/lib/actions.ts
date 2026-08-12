@@ -124,7 +124,12 @@ export type ProjectInput = {
 };
 
 export async function createProject(data: ProjectInput) {
-  await requireAdmin(); // only admins create projects
+  const me = await requireAuth();
+  const { getGlobalCapabilities } = await import("./permissions");
+  const caps = await getGlobalCapabilities(me);
+  if (!caps.canCreateProjects) {
+    throw new Error("Your role doesn't allow creating projects.");
+  }
   if (!data.title?.trim()) throw new Error("Project title is required.");
 
   const project = await prisma.project.create({
@@ -132,6 +137,9 @@ export async function createProject(data: ProjectInput) {
       title: data.title.trim(),
       category: data.category,
       leadId: data.leadId || null,
+      // Creator owns it — grants them full control without an explicit
+      // ProjectAccess row (see getProjectPermissions).
+      ownerId: me.id,
       estBudget: data.estBudget || 0,
       committed: data.committed || 0,
       actualSpend: data.actualSpend || 0,
@@ -1623,5 +1631,138 @@ export async function setTradeShowAccess(memberId: string, canView: boolean, can
     data: { canViewTradeShows: canView || canManage, canManageTradeShows: canManage },
   });
   revalidatePath("/trade-shows");
+  return { ok: true };
+}
+
+// ---------- Roles ----------
+
+/** Only system admins, or someone whose role grants canManageRoles. */
+async function requireRoleManager() {
+  const me = await requireAuth();
+  if (me.role === "ADMIN") return me;
+  const { getGlobalCapabilities } = await import("./permissions");
+  const caps = await getGlobalCapabilities(me);
+  if (!caps.canManageRoles) throw new Error("You don't have permission to manage roles.");
+  return me;
+}
+
+export type RoleInput = {
+  name: string;
+  description?: string;
+  rank: number;
+  canCreateProjects: boolean;
+  canDeleteAnyProject: boolean;
+  canViewAllProjects: boolean;
+  canEditAllProjects: boolean;
+  canViewAllFinancials: boolean;
+  canEditAllFinancials: boolean;
+  canManageTeam: boolean;
+  canManageRoles: boolean;
+  canSendAlerts: boolean;
+  canManageTradeShows: boolean;
+  canViewReports: boolean;
+  defaultCanEditTalkingPoints: boolean;
+  defaultCanEditKeyDates: boolean;
+  defaultCanEditTodos: boolean;
+  defaultCanEditQuestions: boolean;
+  defaultCanEditTeam: boolean;
+  defaultCanViewFiles: boolean;
+  defaultCanUploadFiles: boolean;
+  defaultCanViewFinancials: boolean;
+  defaultCanEditFinancials: boolean;
+  defaultCanEditStatus: boolean;
+};
+
+export async function saveRole(id: string | null, data: RoleInput) {
+  const me = await requireRoleManager();
+  if (!data.name?.trim()) throw new Error("Role name is required.");
+
+  if (id) {
+    const existing = await prisma.role.findUnique({ where: { id } });
+    if (!existing) throw new Error("Role not found.");
+    // System roles keep their identity; only their permissions are editable.
+    if (existing.isSystem && data.name.trim() !== existing.name) {
+      throw new Error("Built-in roles can't be renamed.");
+    }
+  }
+
+  const payload = { ...data, name: data.name.trim(), description: data.description?.trim() || null };
+
+  const role = id
+    ? await prisma.role.update({ where: { id }, data: payload })
+    : await prisma.role.create({ data: payload });
+
+  await logActivity({
+    actor: me,
+    action: id ? "project.updated" : "project.created",
+    summary: `${id ? "Updated" : "Created"} role "${role.name}"`,
+    meta: { roleId: role.id },
+  });
+
+  revalidatePath("/settings/roles");
+  revalidatePath("/settings");
+  return { ok: true, id: role.id };
+}
+
+export async function deleteRole(id: string) {
+  await requireRoleManager();
+  const role = await prisma.role.findUnique({ where: { id }, include: { members: true } });
+  if (!role) throw new Error("Role not found.");
+  if (role.isSystem) throw new Error("Built-in roles can't be deleted.");
+  if (role.members.length > 0) {
+    throw new Error(
+      `${role.members.length} team member${role.members.length === 1 ? " is" : "s are"} still assigned this role. Reassign them first.`
+    );
+  }
+  await prisma.role.delete({ where: { id } });
+  revalidatePath("/settings/roles");
+  return { ok: true };
+}
+
+/** Assign a role to a team member. */
+export async function assignRole(memberId: string, roleId: string | null) {
+  const me = await requireRoleManager();
+  const target = await prisma.teamMember.findUnique({ where: { id: memberId } });
+  if (!target) throw new Error("Team member not found.");
+
+  // Guard: a non-admin can't grant a role that outranks their own.
+  if (me.role !== "ADMIN" && roleId) {
+    const [myRec, newRole] = await Promise.all([
+      prisma.teamMember.findUnique({ where: { id: me.id }, include: { customRole: true } }),
+      prisma.role.findUnique({ where: { id: roleId } }),
+    ]);
+    const myRank = myRec?.customRole?.rank ?? 0;
+    if ((newRole?.rank ?? 0) >= myRank) {
+      throw new Error("You can't assign a role at or above your own level.");
+    }
+  }
+
+  await prisma.teamMember.update({ where: { id: memberId }, data: { roleId } });
+  await logActivity({
+    actor: me,
+    action: "access.changed",
+    summary: `Assigned role to ${target.name}`,
+    meta: { memberId, roleId },
+  });
+  revalidatePath("/team");
+  revalidatePath("/settings/roles");
+  return { ok: true };
+}
+
+/** Transfer project ownership. Admins, or the current owner handing it on. */
+export async function transferProjectOwnership(projectId: string, newOwnerId: string) {
+  const me = await requireAuth();
+  const project = await prisma.project.findUnique({ where: { id: projectId }, select: { ownerId: true, title: true } });
+  if (!project) throw new Error("Project not found.");
+  if (me.role !== "ADMIN" && project.ownerId !== me.id) {
+    throw new Error("Only the owner or an admin can transfer ownership.");
+  }
+  await prisma.project.update({ where: { id: projectId }, data: { ownerId: newOwnerId } });
+  const newOwner = await prisma.teamMember.findUnique({ where: { id: newOwnerId }, select: { name: true } });
+  await logActivity({
+    projectId, actor: me, action: "access.changed",
+    summary: `Transferred ownership to ${newOwner?.name ?? "another member"}`,
+  });
+  revalidatePath(`/projects/${projectId}`);
   return { ok: true };
 }

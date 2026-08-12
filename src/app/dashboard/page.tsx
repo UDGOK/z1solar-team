@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requirePageAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getSettings } from "@/lib/settings";
-import { getViewableProjectIds } from "@/lib/permissions";
+import { getViewableProjectIds, getGlobalCapabilities } from "@/lib/permissions";
 import Navbar from "@/components/Navbar";
 import EditableHighlightTitle from "@/components/EditableHighlightTitle";
 
@@ -28,6 +28,7 @@ export default async function DashboardPage() {
   const isAdmin = member.role === "ADMIN";
 
   const viewableIds = await getViewableProjectIds(member);
+  const caps = await getGlobalCapabilities(member);
   const [projects, teamCount, settings] = await Promise.all([
     prisma.project.findMany({
       where: { archived: false, id: { in: viewableIds } },
@@ -86,7 +87,7 @@ export default async function DashboardPage() {
             <Link href="/team" className="btn-secondary text-xs">
               {teamCount} Team Members →
             </Link>
-            {isAdmin && (
+            {caps.canCreateProjects && (
               <Link href="/projects/new" className="btn-primary text-xs">
                 + New Project
               </Link>
@@ -156,7 +157,7 @@ export default async function DashboardPage() {
           {projects.length === 0 && (
             <div className="card p-10 text-center bg-white">
               <p className="text-brand-inkSoft mb-4">No projects yet.</p>
-              {isAdmin && (
+              {caps.canCreateProjects && (
                 <Link href="/projects/new" className="btn-primary text-sm">
                   Create your first project
                 </Link>

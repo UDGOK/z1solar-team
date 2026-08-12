@@ -235,6 +235,82 @@ async function main() {
     console.log(`  ${a.name} promoted to ADMIN — signs in with Google using: ${a.email}`);
   }
 
+  // --- Roles ---
+  console.log("Seeding roles…");
+  const ROLES = [
+    { name: "Administrator", description: "Full system access.", isSystem: true, rank: 100,
+      canCreateProjects: true, canDeleteAnyProject: true, canViewAllProjects: true, canEditAllProjects: true,
+      canViewAllFinancials: true, canEditAllFinancials: true, canManageTeam: true, canManageRoles: true,
+      canSendAlerts: true, canManageTradeShows: true, canViewReports: true,
+      defaultCanEditTalkingPoints: true, defaultCanEditKeyDates: true, defaultCanEditTodos: true,
+      defaultCanEditQuestions: true, defaultCanEditTeam: true, defaultCanViewFiles: true,
+      defaultCanUploadFiles: true, defaultCanViewFinancials: true, defaultCanEditFinancials: true,
+      defaultCanEditStatus: true },
+    { name: "Sub-Admin", description: "Nearly full access, but can't manage roles or delete others' projects.", isSystem: false, rank: 80,
+      canCreateProjects: true, canDeleteAnyProject: false, canViewAllProjects: true, canEditAllProjects: true,
+      canViewAllFinancials: true, canEditAllFinancials: true, canManageTeam: true, canManageRoles: false,
+      canSendAlerts: true, canManageTradeShows: true, canViewReports: true,
+      defaultCanEditTalkingPoints: true, defaultCanEditKeyDates: true, defaultCanEditTodos: true,
+      defaultCanEditQuestions: true, defaultCanEditTeam: true, defaultCanViewFiles: true,
+      defaultCanUploadFiles: true, defaultCanViewFinancials: true, defaultCanEditFinancials: false,
+      defaultCanEditStatus: true },
+    { name: "Supervisor", description: "Sees every project and can create their own. Read-only on other people's financials.", isSystem: false, rank: 60,
+      canCreateProjects: true, canDeleteAnyProject: false, canViewAllProjects: true, canEditAllProjects: false,
+      canViewAllFinancials: true, canEditAllFinancials: false, canManageTeam: false, canManageRoles: false,
+      canSendAlerts: true, canManageTradeShows: true, canViewReports: true,
+      defaultCanEditTalkingPoints: true, defaultCanEditKeyDates: true, defaultCanEditTodos: true,
+      defaultCanEditQuestions: true, defaultCanEditTeam: false, defaultCanViewFiles: true,
+      defaultCanUploadFiles: true, defaultCanViewFinancials: true, defaultCanEditFinancials: false,
+      defaultCanEditStatus: true },
+    { name: "Project Lead", description: "Creates and fully controls their own projects. No access to others' unless granted.", isSystem: false, rank: 40,
+      canCreateProjects: true, canDeleteAnyProject: false, canViewAllProjects: false, canEditAllProjects: false,
+      canViewAllFinancials: false, canEditAllFinancials: false, canManageTeam: false, canManageRoles: false,
+      canSendAlerts: false, canManageTradeShows: false, canViewReports: false,
+      defaultCanEditTalkingPoints: true, defaultCanEditKeyDates: true, defaultCanEditTodos: true,
+      defaultCanEditQuestions: true, defaultCanEditTeam: true, defaultCanViewFiles: true,
+      defaultCanUploadFiles: true, defaultCanViewFinancials: false, defaultCanEditFinancials: false,
+      defaultCanEditStatus: true },
+    { name: "Member", description: "Only sees projects explicitly shared with them.", isSystem: true, rank: 10,
+      canCreateProjects: false, canDeleteAnyProject: false, canViewAllProjects: false, canEditAllProjects: false,
+      canViewAllFinancials: false, canEditAllFinancials: false, canManageTeam: false, canManageRoles: false,
+      canSendAlerts: false, canManageTradeShows: false, canViewReports: false,
+      defaultCanEditTalkingPoints: true, defaultCanEditKeyDates: false, defaultCanEditTodos: true,
+      defaultCanEditQuestions: false, defaultCanEditTeam: false, defaultCanViewFiles: true,
+      defaultCanUploadFiles: false, defaultCanViewFinancials: false, defaultCanEditFinancials: false,
+      defaultCanEditStatus: false },
+  ];
+  const roleByName = new Map<string, string>();
+  for (const r of ROLES) {
+    const existing = await prisma.role.findFirst({ where: { name: r.name } });
+    const row = existing
+      ? await prisma.role.update({ where: { id: existing.id }, data: r })
+      : await prisma.role.create({ data: r });
+    roleByName.set(r.name, row.id);
+    console.log(`  ${existing ? "Updated" : "Created"} role "${r.name}"`);
+  }
+
+  // Give everyone a role if they don't have one yet.
+  const adminRoleId = roleByName.get("Administrator")!;
+  const memberRoleId = roleByName.get("Member")!;
+  const unroled = await prisma.teamMember.findMany({ where: { roleId: null } });
+  for (const m of unroled) {
+    await prisma.teamMember.update({
+      where: { id: m.id },
+      data: { roleId: m.role === "ADMIN" ? adminRoleId : memberRoleId },
+    });
+  }
+  if (unroled.length) console.log(`  Assigned default roles to ${unroled.length} member(s).`);
+
+  // Backfill ownership so existing projects aren't orphaned.
+  const firstAdmin = await prisma.teamMember.findFirst({ where: { role: "ADMIN" } });
+  if (firstAdmin) {
+    const orphaned = await prisma.project.updateMany({
+      where: { ownerId: null },
+      data: { ownerId: firstAdmin.id },
+    });
+    if (orphaned.count) console.log(`  Assigned ownership of ${orphaned.count} existing project(s) to ${firstAdmin.name}.`);
+  }
+
   console.log("Done.");
 }
 

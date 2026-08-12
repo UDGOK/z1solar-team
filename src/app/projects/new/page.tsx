@@ -1,4 +1,6 @@
-import { requirePageAdmin } from "@/lib/auth";
+import { requirePageAuth } from "@/lib/auth";
+import { getGlobalCapabilities } from "@/lib/permissions";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import Navbar from "@/components/Navbar";
 import ProjectForm from "@/components/ProjectForm";
@@ -6,7 +8,9 @@ import ProjectForm from "@/components/ProjectForm";
 export const dynamic = "force-dynamic";
 
 export default async function NewProjectPage() {
-  await requirePageAdmin(); // only admins can create new projects
+  const me = await requirePageAuth();
+  const caps = await getGlobalCapabilities(me);
+  if (!caps.canCreateProjects) redirect("/dashboard");
   const teamMembers = await prisma.teamMember.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
 
   return (

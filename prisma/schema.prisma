@@ -13,7 +13,11 @@ model TeamMember {
   title       String?
   email       String?         @unique // Google sign-in identity AND email/password login
   phone       String?
+  // Legacy field, retained so existing checks keep working during rollout.
+  // "ADMIN" here still means full system access regardless of roleId.
   role        String          @default("MEMBER") // "MEMBER" | "ADMIN"
+  roleId      String?
+  customRole  Role?           @relation(fields: [roleId], references: [id], onDelete: SetNull)
 
   // Email + password login (optional — a person can use Google instead, or both).
   // Set by the person themselves via an invite link; admins never see or set it.
@@ -24,6 +28,7 @@ model TeamMember {
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   leads       Project[]       @relation("ProjectLead")
+  ownedProjects Project[]     @relation("ProjectOwner")
   memberships ProjectMember[]
   access      ProjectAccess[]
   assignedTodos Todo[]        @relation("TodoAssignee")
@@ -75,6 +80,10 @@ model Project {
   category     String // "Solar & Battery" | "Other Projects" | "Other Matters" | "New Project"
   leadId       String?
   lead         TeamMember?     @relation("ProjectLead", fields: [leadId], references: [id])
+  // Whoever created the project. Owners get full control of their own
+  // projects without needing an explicit ProjectAccess row.
+  ownerId      String?
+  owner        TeamMember?     @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   members      ProjectMember[]
   talkingPoints TalkingPoint[]
   keyDates     KeyDate[]
@@ -424,6 +433,49 @@ model TradeShowAttendee {
   notes       String?
 
   @@unique([tradeShowId, memberId])
+}
+
+// A named set of capabilities an admin can define and assign, e.g.
+// "Supervisor", "Sub-admin", "Field Tech". Two system roles (Administrator,
+// Member) ship by default and can't be deleted.
+model Role {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+  // System roles are protected from deletion/renaming.
+  isSystem    Boolean @default(false)
+  // Higher rank = more authority. Used to stop someone editing a role at or
+  // above their own level.
+  rank        Int     @default(10)
+
+  // --- Global capabilities ---
+  canCreateProjects    Boolean @default(false)
+  canDeleteAnyProject  Boolean @default(false)
+  canViewAllProjects   Boolean @default(false)
+  canEditAllProjects   Boolean @default(false)
+  canViewAllFinancials Boolean @default(false)
+  canEditAllFinancials Boolean @default(false)
+  canManageTeam        Boolean @default(false)
+  canManageRoles       Boolean @default(false)
+  canSendAlerts        Boolean @default(false)
+  canManageTradeShows  Boolean @default(false)
+  canViewReports       Boolean @default(false)
+
+  // --- Defaults applied when this person is granted a project ---
+  defaultCanEditTalkingPoints Boolean @default(true)
+  defaultCanEditKeyDates      Boolean @default(true)
+  defaultCanEditTodos         Boolean @default(true)
+  defaultCanEditQuestions     Boolean @default(true)
+  defaultCanEditTeam          Boolean @default(false)
+  defaultCanViewFiles         Boolean @default(true)
+  defaultCanUploadFiles       Boolean @default(true)
+  defaultCanViewFinancials    Boolean @default(false)
+  defaultCanEditFinancials    Boolean @default(false)
+  defaultCanEditStatus        Boolean @default(true)
+
+  members   TeamMember[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Settings {

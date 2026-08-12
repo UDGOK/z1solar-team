@@ -5,6 +5,8 @@ import Navbar from "@/components/Navbar";
 import WhatsAppLinkForm from "@/components/WhatsAppLinkForm";
 import MeetingLinkForm from "@/components/MeetingLinkForm";
 import AdminManagement from "@/components/AdminManagement";
+import Link from "next/link";
+import { getGlobalCapabilities } from "@/lib/permissions";
 import InviteManager from "@/components/InviteManager";
 import ChangeOwnPasswordForm from "@/components/ChangeOwnPasswordForm";
 
@@ -14,6 +16,7 @@ export default async function SettingsPage() {
   const member = await requirePageAuth();
   const isAdmin = member.role === "ADMIN";
   const settings = await getSettings();
+  const caps = await getGlobalCapabilities(member);
 
   const me = await prisma.teamMember.findUnique({
     where: { id: member.id },
@@ -35,6 +38,16 @@ export default async function SettingsPage() {
           <p className="kicker mb-1">[ Z1POWER ]</p>
           <h1 className="font-heading text-3xl font-extrabold text-brand-ink">Settings</h1>
         </div>
+
+        {caps.canManageRoles && (
+          <div className="card p-5 bg-white">
+            <p className="kicker mb-2">Roles &amp; Permissions</p>
+            <p className="text-xs text-brand-inkFaint mb-3">
+              Create roles like Supervisor or Project Lead, choose what each can do, and assign them to your team.
+            </p>
+            <Link href="/settings/roles" className="btn-secondary text-xs">Manage Roles →</Link>
+          </div>
+        )}
 
         {isAdmin && (
           <>

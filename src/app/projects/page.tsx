@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requirePageAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getViewableProjectIds } from "@/lib/permissions";
+import { getViewableProjectIds, getGlobalCapabilities } from "@/lib/permissions";
 import Navbar from "@/components/Navbar";
 import { fmtMoney } from "@/lib/format";
 
@@ -11,6 +11,7 @@ export default async function ProjectsPage() {
   const member = await requirePageAuth();
   const isAdmin = member.role === "ADMIN";
   const viewableIds = await getViewableProjectIds(member);
+  const caps = await getGlobalCapabilities(member);
   const projects = await prisma.project.findMany({
     where: { archived: false, id: { in: viewableIds } },
     include: { lead: true, todos: true },
@@ -26,7 +27,7 @@ export default async function ProjectsPage() {
             <p className="kicker mb-1">[ Z1POWER ]</p>
             <h1 className="font-heading text-3xl font-extrabold text-brand-ink">All Projects</h1>
           </div>
-          {isAdmin && (
+          {caps.canCreateProjects && (
             <Link href="/projects/new" className="btn-primary">
               + New Project
             </Link>
@@ -69,7 +70,7 @@ export default async function ProjectsPage() {
                 <tr>
                   <td colSpan={isAdmin ? 6 : 5} className="px-4 py-10 text-center text-brand-inkFaint">
                     No projects yet.{" "}
-                    {isAdmin && (
+                    {caps.canCreateProjects && (
                       <Link href="/projects/new" className="text-brand-greenDark font-semibold">
                         Create one →
                       </Link>
