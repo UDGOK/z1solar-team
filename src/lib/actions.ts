@@ -491,7 +491,7 @@ export async function generateInviteLink(memberId: string): Promise<{ url: strin
   // NEXTAUTH_URL — if that's unset or still pointing at localhost in Vercel,
   // generated invite links would be dead on arrival for the recipient.
   const { headers } = await import("next/headers");
-  const h = headers();
+  const h = await headers();
   const host = h.get("x-forwarded-host") || h.get("host");
   const proto = h.get("x-forwarded-proto") || (host?.includes("localhost") ? "http" : "https");
   const base = host ? `${proto}://${host}` : process.env.NEXTAUTH_URL || "";
@@ -566,7 +566,7 @@ export async function changeOwnPassword(
 /** Absolute app URL derived from the live request (works on any domain). */
 async function appUrl(): Promise<string> {
   const { headers } = await import("next/headers");
-  const h = headers();
+  const h = await headers();
   const host = h.get("x-forwarded-host") || h.get("host");
   const proto = h.get("x-forwarded-proto") || (host?.includes("localhost") ? "http" : "https");
   return host ? `${proto}://${host}` : process.env.NEXTAUTH_URL || "";

@@ -6,14 +6,15 @@ import { loadProjectForPdf, renderProjectSummaryPdf, pdfFilename } from "@/lib/p
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(_request: Request, { params }: { params: { id: string } }) {
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id: projectId } = await params;
   const member = await requirePageAuth();
-  const perms = await getProjectPermissions(member, params.id);
+  const perms = await getProjectPermissions(member, projectId);
   if (!perms.canViewFinancials) {
     return NextResponse.json({ error: "You don't have financial access to this project." }, { status: 403 });
   }
 
-  const project = await loadProjectForPdf(params.id);
+  const project = await loadProjectForPdf(projectId);
   if (!project) {
     return NextResponse.json({ error: "Project not found." }, { status: 404 });
   }

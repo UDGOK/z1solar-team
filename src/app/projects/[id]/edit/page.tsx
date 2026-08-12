@@ -7,14 +7,15 @@ import ProjectForm from "@/components/ProjectForm";
 
 export const dynamic = "force-dynamic";
 
-export default async function EditProjectPage({ params }: { params: { id: string } }) {
+export default async function EditProjectPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id: projectId } = await params;
   const member = await requirePageAuth();
-  const perms = await getProjectPermissions(member, params.id);
+  const perms = await getProjectPermissions(member, projectId);
   if (!perms.canView) notFound();
 
   const [project, teamMembers] = await Promise.all([
     prisma.project.findUnique({
-      where: { id: params.id },
+      where: { id: projectId },
       include: {
         members: true,
         talkingPoints: { orderBy: { order: "asc" } },
