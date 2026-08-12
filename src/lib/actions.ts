@@ -1473,3 +1473,152 @@ export async function bulkUpdateTasks(
   revalidatePath("/dashboard");
   return { updated, skipped };
 }
+
+// ---------- Trade shows ----------
+
+/** Manage rights: admins always, plus anyone explicitly granted. */
+async function requireTradeShowManager() {
+  const me = await requireAuth();
+  if (me.role === "ADMIN") return me;
+  const record = await prisma.teamMember.findUnique({
+    where: { id: me.id },
+    select: { canManageTradeShows: true },
+  });
+  if (!record?.canManageTradeShows) throw new Error("You don't have permission to manage trade shows.");
+  return me;
+}
+
+export type TradeShowInput = {
+  name: string;
+  description?: string;
+  startDate: string;
+  endDate?: string | null;
+  timeInfo?: string;
+  venue?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  websiteUrl?: string;
+  registrationUrl?: string;
+  registrationDeadline?: string | null;
+  priority: string;
+  status: string;
+  boothInfo?: string;
+  estimatedCost: number;
+  notes?: string;
+};
+
+export async function saveTradeShow(id: string | null, data: TradeShowInput) {
+  const me = await requireTradeShowManager();
+  if (!data.name?.trim()) throw new Error("Show name is required.");
+  if (!data.startDate) throw new Error("Start date is required.");
+
+  const payload = {
+    name: data.name.trim(),
+    description: data.description?.trim() || null,
+    startDate: new Date(data.startDate),
+    endDate: data.endDate ? new Date(data.endDate) : null,
+    timeInfo: data.timeInfo?.trim() || null,
+    venue: data.venue?.trim() || null,
+    city: data.city?.trim() || null,
+    state: data.state?.trim() || null,
+    country: data.country?.trim() || "USA",
+    websiteUrl: data.websiteUrl?.trim() || null,
+    registrationUrl: data.registrationUrl?.trim() || null,
+    registrationDeadline: data.registrationDeadline ? new Date(data.registrationDeadline) : null,
+    priority: data.priority || "Medium",
+    status: data.status || "Considering",
+    boothInfo: data.boothInfo?.trim() || null,
+    estimatedCost: Number(data.estimatedCost) || 0,
+    notes: data.notes?.trim() || null,
+  };
+
+  const show = id
+    ? await prisma.tradeShow.update({ where: { id }, data: payload })
+    : await prisma.tradeShow.create({ data: payload });
+
+  await logActivity({
+    actor: me,
+    action: id ? "project.updated" : "project.created",
+    summary: `${id ? "Updated" : "Added"} trade show "${show.name}"`,
+    meta: { tradeShowId: show.id },
+  });
+
+  revalidatePath("/trade-shows");
+  return { ok: true, id: show.id };
+}
+
+export async function deleteTradeShow(id: string) {
+  await requireTradeShowManager();
+  await prisma.tradeShow.delete({ where: { id } });
+  revalidatePath("/trade-shows");
+  return { ok: true };
+}
+
+/** Add or update someone's attendance. Managers can set anyone; members set only themselves. */
+export async function setTradeShowAttendance(
+  tradeShowId: string,
+  memberId: string,
+  data: { status: string; role?: string; notes?: string }
+) {
+  const me = await requireAuth();
+  const isManager =
+    me.role === "ADMIN" ||
+    !!(await prisma.teamMember.findUnique({ where: { id: me.id }, select: { canManageTradeShows: true } }))
+      ?.canManageTradeShows;
+
+  // Anyone can RSVP for themselves; only managers can change someone else's.
+  if (!isManager && memberId !== me.id) {
+    throw new Error("You can only change your own attendance.");
+  }
+
+  await prisma.tradeShowAttendee.upsert({
+    where: { tradeShowId_memberId: { tradeShowId, memberId } },
+    create: { tradeShowId, memberId, status: data.status, role: data.role || null, notes: data.notes || null },
+    update: { status: data.status, role: data.role || null, notes: data.notes || null },
+  });
+
+  // Let someone know when a manager signs them up.
+  if (isManager && memberId !== me.id && data.status !== "Declined") {
+    const show = await prisma.tradeShow.findUnique({ where: { id: tradeShowId }, select: { name: true, startDate: true } });
+    if (show) {
+      await prisma.notification.create({
+        data: {
+          recipientId: memberId,
+          type: "GENERAL",
+          title: `You're down for ${show.name}`,
+          body: `${data.status} · ${show.startDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`,
+          link: "/trade-shows",
+        },
+      });
+    }
+  }
+
+  revalidatePath("/trade-shows");
+  return { ok: true };
+}
+
+export async function removeTradeShowAttendee(tradeShowId: string, memberId: string) {
+  const me = await requireAuth();
+  const isManager =
+    me.role === "ADMIN" ||
+    !!(await prisma.teamMember.findUnique({ where: { id: me.id }, select: { canManageTradeShows: true } }))
+      ?.canManageTradeShows;
+  if (!isManager && memberId !== me.id) throw new Error("You can only remove yourself.");
+
+  await prisma.tradeShowAttendee.deleteMany({ where: { tradeShowId, memberId } });
+  revalidatePath("/trade-shows");
+  return { ok: true };
+}
+
+/** Admin-only: who can see and who can manage the Trade Shows area. */
+export async function setTradeShowAccess(memberId: string, canView: boolean, canManage: boolean) {
+  await requireAdmin();
+  await prisma.teamMember.update({
+    where: { id: memberId },
+    // Managing implies viewing — otherwise you'd grant an unusable permission.
+    data: { canViewTradeShows: canView || canManage, canManageTradeShows: canManage },
+  });
+  revalidatePath("/trade-shows");
+  return { ok: true };
+}

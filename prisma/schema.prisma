@@ -32,6 +32,10 @@ model TeamMember {
   sentMessages     Message[]          @relation("MessageSender")
   activities       Activity[]
   savedViews       SavedView[]
+  tradeShowAttendance TradeShowAttendee[]
+  // Module-level access, set by an admin from the Trade Shows page.
+  canViewTradeShows   Boolean @default(true)
+  canManageTradeShows Boolean @default(false)
   messageReceipts  MessageRecipient[]
   subscriptions ReportSubscription[]
   emailOnTaskAssigned Boolean @default(true)
@@ -368,6 +372,56 @@ model SavedView {
   createdAt DateTime   @default(now())
 
   @@index([ownerId])
+}
+
+// Trade shows / industry events the team may attend.
+model TradeShow {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+
+  startDate   DateTime
+  endDate     DateTime?
+  // Free text rather than a time field — real listings say things like
+  // "Expo hall 9am–5pm daily", which no time picker captures well.
+  timeInfo    String?
+
+  venue       String?
+  city        String?
+  state       String?
+  country     String?  @default("USA")
+
+  websiteUrl      String?
+  registrationUrl String?
+  // Booth registration usually closes long before the show itself — this is
+  // the date that actually causes problems when missed.
+  registrationDeadline DateTime?
+
+  priority    String   @default("Medium") // High | Medium | Low
+  status      String   @default("Considering") // Considering | Registered | Attending | Attended | Skipped
+  boothInfo   String?
+  estimatedCost Float  @default(0)
+  notes       String?
+
+  attendees   TradeShowAttendee[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([startDate])
+}
+
+model TradeShowAttendee {
+  id          String     @id @default(cuid())
+  tradeShowId String
+  tradeShow   TradeShow  @relation(fields: [tradeShowId], references: [id], onDelete: Cascade)
+  memberId    String
+  member      TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  status      String     @default("Tentative") // Confirmed | Tentative | Declined
+  role        String?    // e.g. "Booth lead", "Technical support"
+  notes       String?
+
+  @@unique([tradeShowId, memberId])
 }
 
 model Settings {

@@ -12,6 +12,7 @@ const links = [
   { href: "/projects", label: "Projects" },
   { href: "/tasks", label: "Tasks" },
   { href: "/messages", label: "Messages" },
+  { href: "/trade-shows", label: "Trade Shows" },
   { href: "/team", label: "Team" },
   { href: "/settings", label: "Settings" },
 ];
@@ -26,6 +27,11 @@ export default async function Navbar({ active }: { active: string }) {
       })
     : [];
   const pendingAlerts = member ? await getPendingAlerts() : [];
+  const tsAccess = member
+    ? await prisma.teamMember.findUnique({ where: { id: member.id }, select: { canViewTradeShows: true } })
+    : null;
+  const showTradeShows = member?.role === "ADMIN" || !!tsAccess?.canViewTradeShows;
+  const visibleLinks = links.filter((l) => l.href !== "/trade-shows" || showTradeShows);
   const badgeLabel = member ? `${member.role === "ADMIN" ? "ADMIN" : "MEMBER"} — ${member.name.toUpperCase()}` : "";
 
   return (
@@ -39,7 +45,7 @@ export default async function Navbar({ active }: { active: string }) {
             <span className="tag text-brand-greenDark hidden sm:inline">// TEAM HUB</span>
           </Link>
           <nav className="hidden sm:flex items-center gap-1">
-            {links.map((l) => (
+            {visibleLinks.map((l) => (
               <Link
                 key={l.href}
                 href={l.href}
@@ -70,7 +76,7 @@ export default async function Navbar({ active }: { active: string }) {
         </div>
       </div>
       <nav className="sm:hidden flex items-center gap-1 px-4 pb-2 overflow-x-auto">
-        {links.map((l) => (
+        {visibleLinks.map((l) => (
           <Link
             key={l.href}
             href={l.href}
