@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
+import React from "react";
+import { renderToBuffer } from "@react-pdf/renderer";
 import { requirePageAdmin } from "@/lib/auth";
 import { fontDiagnostics, findLogoPath, registerPdfFonts } from "@/lib/pdf/fonts";
+import { ProjectSummaryDocument } from "@/lib/pdf/ProjectSummaryDocument";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,9 +35,6 @@ export async function GET() {
   let signature = "";
   if (registerOk) {
     try {
-      const React = (await import("react")).default;
-      const { renderToBuffer } = await import("@react-pdf/renderer");
-      const { ProjectSummaryDocument } = await import("@/lib/pdf/ProjectSummaryDocument");
       const sample: any = {
         title: "Diagnostic", category: "Test", status: "On Track", completionPct: 50,
         lead: { name: "Test", title: null }, members: [], talkingPoints: [], keyDates: [], todos: [],
