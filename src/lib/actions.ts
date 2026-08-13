@@ -470,13 +470,36 @@ export async function generateShareableSummaryLink(projectId: string): Promise<{
   if (!project) throw new Error("Project not found.");
 
   const buffer = await renderProjectSummaryPdf(project);
-  const blob = await put(`summaries/${pdfFilename(project.title)}`, buffer, {
-    access: "public",
+  const filename = pdfFilename(project.title);
+
+  // Blob storage is Private — a raw blob URL doesn't work for someone
+  // outside the app. Instead we store the PDF privately and hand out our
+  // own token-based link: possession of the unguessable token is what
+  // grants access (same security property as an unlisted public URL), and
+  // unlike a raw blob URL we can expire it.
+  const blob = await put(`summaries/${filename}`, buffer, {
+    access: "private",
     addRandomSuffix: true,
     contentType: "application/pdf",
   });
 
-  return { url: blob.url };
+  const crypto = await import("crypto");
+  const token = crypto.randomBytes(24).toString("hex");
+  const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+
+  await prisma.sharedLink.create({
+    data: {
+      token,
+      pathname: blob.pathname,
+      filename,
+      contentType: "application/pdf",
+      projectId,
+      expiresAt: new Date(Date.now() + THIRTY_DAYS),
+    },
+  });
+
+  const base = await appUrl();
+  return { url: `${base}/api/shared/${token}` };
 }
 
 // ---------- Email + password invites ----------

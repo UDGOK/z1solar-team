@@ -20,7 +20,7 @@ export default function FileUploader({ projectId }: { projectId: string }) {
         const file = files[i];
         setProgress(`Uploading ${i + 1} of ${files.length}: ${file.name}`);
         const blob = await upload(file.name, file, {
-          access: "public",
+          access: "private",
           handleUploadUrl: "/api/upload",
         });
         await attachFileToProject(projectId, {

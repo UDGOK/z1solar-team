@@ -496,6 +496,25 @@ model Role {
   updatedAt DateTime @updatedAt
 }
 
+// Durable, unguessable links for externally sharing a generated PDF (the
+// "Get Shareable Link" button). Blob storage is private-only, so a raw blob
+// URL no longer works for someone outside the app — this is our own proxy:
+// possession of the random token is what grants access, same security
+// property as an unlisted public URL, but mediated by our server so we can
+// also expire it.
+model SharedLink {
+  id         String    @id @default(cuid())
+  token      String    @unique
+  pathname   String
+  filename   String
+  contentType String   @default("application/pdf")
+  projectId  String?
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime?
+
+  @@index([token])
+}
+
 model Settings {
   id           String  @id @default("singleton")
   whatsappLink String?
