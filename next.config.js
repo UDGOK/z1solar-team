@@ -1,4 +1,5 @@
 const path = require("path");
+const { withSentryConfig } = require("@sentry/nextjs");
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -40,4 +41,23 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig;
+// withSentryConfig wraps the config above — it composes with our custom
+// `webpack` function rather than replacing it, so the react-pdf fix above
+// still applies. Source map upload only runs when SENTRY_AUTH_TOKEN is set
+// (added automatically once you connect Sentry via the Vercel Marketplace
+// integration); without it this wrapper is a no-op passthrough, so local
+// builds and builds before Sentry is connected are unaffected.
+module.exports = withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  silent: true,
+  widenClientFileUpload: true,
+  // Strips Sentry's own debug console logs from the client bundle.
+  webpack: { treeshake: { removeDebugLogging: true } },
+  // Don't fail the build if Sentry isn't connected yet or a source-map
+  // upload has a hiccup — deploys should never depend on monitoring being
+  // configured.
+  sourcemaps: {
+    disable: !process.env.SENTRY_AUTH_TOKEN,
+  },
+});

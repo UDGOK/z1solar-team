@@ -23,7 +23,8 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "bcryptjs": "^2.4.3",
-    "resend": "^4.0.1"
+    "resend": "^4.0.1",
+    "@sentry/nextjs": "^10.70.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
