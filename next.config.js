@@ -1,17 +1,21 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   eslint: { ignoreDuringBuilds: true },
-  // @react-pdf/renderer reads font (.ttf) and logo (.png) files from the
-  // filesystem at request time. Next.js's serverless bundler can't trace
-  // that dependency statically, so without this the build works locally
-  // but the files go missing once deployed to Vercel.
+
+  // Keep @react-pdf/renderer OUT of the webpack bundle.
   //
-  // Next 15 moved this out of `experimental` to the top level. While it was
-  // nested it was silently ignored, which would have broken PDF generation
-  // in production even though the build succeeded.
-  outputFileTracingIncludes: {
-    "/**": ["./src/lib/pdf/fonts/**/*", "./public/logo.png"],
-  },
+  // When Next bundles it, react-pdf ends up with its own copy of React. The
+  // route then creates elements with one React instance and renders them with
+  // another, which React rejects as invalid — surfacing as the cryptic
+  // "Minified React error #31" and a 500 with an empty body (the browser saves
+  // that empty response as a .txt file).
+  //
+  // Listing it here makes Node require it at runtime from node_modules, so
+  // there is exactly one React instance.
+  serverExternalPackages: ["@react-pdf/renderer", "@react-pdf/pdfkit", "@react-pdf/font", "@react-pdf/layout", "@react-pdf/render", "@react-pdf/textkit", "@react-pdf/image", "fontkit"],
+
+  // Fonts and logo are embedded as base64 (see src/lib/pdf/fontData.ts), so no
+  // file tracing is needed for them any more. Kept minimal deliberately.
 };
 
 module.exports = nextConfig;

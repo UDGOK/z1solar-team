@@ -7,10 +7,6 @@ import { getCurrentMember } from "./auth";
 import { setWhatsAppLink } from "./settings";
 import { getProjectPermissions } from "./permissions";
 import { logActivity } from "./activity";
-// Static, not dynamic: dynamically importing the PDF modules gives a separate
-// @react-pdf module instance whose font registry is empty, which surfaces as
-// "Font family not registered: Poppins" and downloads an error page as .txt.
-import { loadProjectForPdf, renderProjectSummaryPdf, pdfFilename } from "@/lib/pdf/render";
 import type { Permission } from "./permissionTypes";
 
 async function requireAuth() {
@@ -464,6 +460,10 @@ export async function generateShareableSummaryLink(projectId: string): Promise<{
     throw new Error("Project summaries include financials — you don't have financial access to this project.");
   }
 
+  // Loaded on demand so @react-pdf isn't pulled into every page that imports
+  // this server-actions module. Safe as a dynamic import because react-pdf is
+  // listed in serverExternalPackages, so Node resolves one shared instance.
+  const { loadProjectForPdf, renderProjectSummaryPdf, pdfFilename } = await import("@/lib/pdf/render");
   const { put } = await import("@vercel/blob");
 
   const project = await loadProjectForPdf(projectId);
