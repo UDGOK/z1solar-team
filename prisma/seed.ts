@@ -336,6 +336,47 @@ async function main() {
     console.log("  No legacy assignments to migrate.");
   }
 
+  // Seed project categories from whatever the live projects already use, so
+  // the editable list matches reality rather than a hard-coded guess.
+  console.log("Seeding project categories…");
+  const CAT_COLORS: Record<string, string> = {
+    "Solar & Battery": "#4CAB3E",
+    "Data Centers": "#3F9634",
+    Certifications: "#E8743B",
+    International: "#1C1C1C",
+    "Other Projects": "#3F9634",
+    "Other Matters": "#8A8A85",
+    "New Project": "#E8743B",
+  };
+  const distinct = await prisma.project.findMany({ select: { category: true }, distinct: ["category"] });
+  const names = new Set<string>(distinct.map((d) => d.category));
+  for (const n of Object.keys(CAT_COLORS)) names.add(n);
+  let order = 0;
+  for (const name of Array.from(names)) {
+    const existing = await prisma.category.findFirst({ where: { name } });
+    if (!existing) {
+      await prisma.category.create({ data: { name, color: CAT_COLORS[name] ?? "#8A8A85", order: order++ } });
+      console.log(`  Created category "${name}"`);
+    }
+  }
+
+  // Starter resource library.
+  console.log("Seeding resource categories…");
+  const RESOURCE_CATS = [
+    { name: "Marketing Flyers", description: "Brochures, one-pagers and sell sheets.", icon: "megaphone", color: "#E8743B", order: 0 },
+    { name: "Knowledge Base", description: "How-tos, process docs and internal guides.", icon: "book", color: "#4CAB3E", order: 1 },
+    { name: "Spec Sheets", description: "Equipment datasheets and technical specs.", icon: "file", color: "#3F9634", order: 2 },
+    { name: "Templates", description: "Reusable proposal, contract and report templates.", icon: "template", color: "#8A8A85", order: 3 },
+    { name: "Certifications", description: "UL, 9540 and compliance documentation.", icon: "badge", color: "#1C1C1C", order: 4 },
+  ];
+  for (const rc of RESOURCE_CATS) {
+    const existing = await prisma.resourceCategory.findFirst({ where: { name: rc.name } });
+    if (!existing) {
+      await prisma.resourceCategory.create({ data: rc });
+      console.log(`  Created resource category "${rc.name}"`);
+    }
+  }
+
   console.log("Done.");
 }
 

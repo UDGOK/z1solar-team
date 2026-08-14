@@ -33,6 +33,10 @@ model TeamMember {
   access      ProjectAccess[]
   assignedTodos Todo[]        @relation("TodoAssignee")
   todoAssignments TodoAssignee[]
+  meetingsOrganized Meeting[]        @relation("MeetingOrganizer")
+  meetingAttendance MeetingAttendee[]
+  agendaOwned       MeetingAgendaItem[] @relation("AgendaOwner")
+  resourcesUploaded Resource[]       @relation("ResourceUploader")
   createdTodos  Todo[]        @relation("TodoCreator")
   notifications Notification[] @relation("NotificationRecipient")
   sentMessages     Message[]          @relation("MessageSender")
@@ -94,6 +98,7 @@ model Project {
   access       ProjectAccess[]
   lineItems    FinancialLineItem[]
   subscriptions ReportSubscription[]
+  meetings     Meeting[]
 
   // financials
   estBudget    Float           @default(0)
@@ -482,6 +487,12 @@ model Role {
   canSendAlerts        Boolean @default(false)
   canManageTradeShows  Boolean @default(false)
   canViewReports       Boolean @default(false)
+  canManageMeetings    Boolean @default(false)
+  canViewMeetings      Boolean @default(true)
+  canTakeMeetingNotes  Boolean @default(false)
+  canManageResources   Boolean @default(false)
+  canViewResources     Boolean @default(true)
+  canManageCategories  Boolean @default(false)
 
   // --- Defaults applied when this person is granted a project ---
   defaultCanEditTalkingPoints Boolean @default(true)
@@ -517,6 +528,114 @@ model SharedLink {
   expiresAt  DateTime?
 
   @@index([token])
+}
+
+// Project categories. Deliberately NOT a foreign key on Project — that column
+// is a plain string on live data, and converting it would be a destructive
+// migration. This table is the editable list; renames update both in one
+// transaction, and a category can't be deleted while projects still use it.
+model Category {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  color     String   @default("#8A8A85")
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+// A meeting moves through phases: scheduled -> agenda -> held -> notes.
+// The UI changes shape per phase rather than showing one flat form.
+model Meeting {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  startsAt    DateTime
+  durationMins Int     @default(60)
+  location    String?
+  joinUrl     String?
+
+  status      String   @default("Scheduled") // Scheduled | Held | Cancelled
+  // Written after the meeting. Kept separate from description so the agenda
+  // isn't overwritten by the minutes.
+  notes       String?
+  notesBy     String?
+  notesAt     DateTime?
+
+  organizerId String?
+  organizer   TeamMember? @relation("MeetingOrganizer", fields: [organizerId], references: [id], onDelete: SetNull)
+
+  projectId   String?
+  project     Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  agendaItems MeetingAgendaItem[]
+  attendees   MeetingAttendee[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([startsAt])
+}
+
+model MeetingAgendaItem {
+  id        String  @id @default(cuid())
+  meetingId String
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  text      String
+  order     Int     @default(0)
+  // Ticked during the meeting so everyone can see what's been covered.
+  covered   Boolean @default(false)
+  ownerId   String?
+  owner     TeamMember? @relation("AgendaOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+}
+
+model MeetingAttendee {
+  id        String  @id @default(cuid())
+  meetingId String
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  memberId  String
+  member    TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  status    String  @default("Invited") // Invited | Accepted | Declined | Attended
+  // Per-meeting override: lets an admin give one person note-taking rights
+  // for a single meeting without granting it globally via their role.
+  canEditNotes Boolean @default(false)
+
+  @@unique([meetingId, memberId])
+}
+
+// Shared library: marketing flyers, spec sheets, knowledge base, templates.
+// Holds either an uploaded file (private blob) or an external link.
+model ResourceCategory {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  description String?
+  icon      String     @default("folder")
+  color     String     @default("#4CAB3E")
+  order     Int        @default(0)
+  items     Resource[]
+  createdAt DateTime   @default(now())
+}
+
+model Resource {
+  id          String  @id @default(cuid())
+  categoryId  String
+  category    ResourceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?
+  // Exactly one of these is set. A flyer is a file; a knowledge-base article
+  // is often just a URL, and forcing everything into one shape is worse.
+  kind        String  @default("FILE") // FILE | LINK
+  url         String?
+  pathname    String?
+  filename    String?
+  contentType String?
+  size        Int     @default(0)
+
+  tags        String?
+  uploadedById String?
+  uploadedBy  TeamMember? @relation("ResourceUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([categoryId])
 }
 
 model Settings {

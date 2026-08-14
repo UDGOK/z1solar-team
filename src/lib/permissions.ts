@@ -18,6 +18,12 @@ export type GlobalCapabilities = {
   canSendAlerts: boolean;
   canManageTradeShows: boolean;
   canViewReports: boolean;
+  canManageMeetings: boolean;
+  canViewMeetings: boolean;
+  canTakeMeetingNotes: boolean;
+  canManageResources: boolean;
+  canViewResources: boolean;
+  canManageCategories: boolean;
 };
 
 const ALL_CAPS_TRUE: GlobalCapabilities = {
@@ -25,6 +31,8 @@ const ALL_CAPS_TRUE: GlobalCapabilities = {
   canEditAllProjects: true, canViewAllFinancials: true, canEditAllFinancials: true,
   canManageTeam: true, canManageRoles: true, canSendAlerts: true,
   canManageTradeShows: true, canViewReports: true,
+  canManageMeetings: true, canViewMeetings: true, canTakeMeetingNotes: true,
+  canManageResources: true, canViewResources: true, canManageCategories: true,
 };
 
 const ALL_CAPS_FALSE: GlobalCapabilities = {
@@ -32,6 +40,8 @@ const ALL_CAPS_FALSE: GlobalCapabilities = {
   canEditAllProjects: false, canViewAllFinancials: false, canEditAllFinancials: false,
   canManageTeam: false, canManageRoles: false, canSendAlerts: false,
   canManageTradeShows: false, canViewReports: false,
+  canManageMeetings: false, canViewMeetings: false, canTakeMeetingNotes: false,
+  canManageResources: false, canViewResources: false, canManageCategories: false,
 };
 
 /**
@@ -62,6 +72,12 @@ export async function getGlobalCapabilities(member: CurrentMember): Promise<Glob
     canSendAlerts: r.canSendAlerts,
     canManageTradeShows: r.canManageTradeShows,
     canViewReports: r.canViewReports,
+    canManageMeetings: r.canManageMeetings,
+    canViewMeetings: r.canViewMeetings,
+    canTakeMeetingNotes: r.canTakeMeetingNotes,
+    canManageResources: r.canManageResources,
+    canViewResources: r.canViewResources,
+    canManageCategories: r.canManageCategories,
   };
 }
 
