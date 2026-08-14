@@ -1,7 +1,7 @@
 import { requirePageAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getViewableProjectIds } from "@/lib/permissions";
-import Navbar from "@/components/Navbar";
+import AppShell from "@/components/AppShell";
 import TasksHub from "@/components/TasksHub";
 import type { TaskRowData } from "@/components/TaskRow";
 
@@ -67,8 +67,7 @@ export default async function TasksPage() {
   ]);
 
   return (
-    <div className="min-h-screen bg-brand-greenTint">
-      <Navbar active="/tasks" />
+    <AppShell active="/tasks">
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
         <div className="mb-6">
           <p className="kicker mb-1">[ Z1POWER ]</p>
@@ -90,6 +89,6 @@ export default async function TasksPage() {
           }))}
         />
       </main>
-    </div>
+    </AppShell>
   );
 }

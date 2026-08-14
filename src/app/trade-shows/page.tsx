@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requirePageAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import Navbar from "@/components/Navbar";
+import AppShell from "@/components/AppShell";
 import TradeShowsHub from "@/components/TradeShowsHub";
 import type { TradeShowItem } from "@/components/TradeShowCard";
 
@@ -64,8 +64,7 @@ export default async function TradeShowsPage() {
   }));
 
   return (
-    <div className="min-h-screen bg-brand-greenTint">
-      <Navbar active="/trade-shows" />
+    <AppShell active="/trade-shows">
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
         <div className="mb-6">
           <p className="kicker mb-1">[ Z1POWER ]</p>
@@ -89,6 +88,6 @@ export default async function TradeShowsPage() {
           }))}
         />
       </main>
-    </div>
+    </AppShell>
   );
 }

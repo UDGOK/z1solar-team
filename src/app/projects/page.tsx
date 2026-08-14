@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requirePageAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getViewableProjectIds, getGlobalCapabilities } from "@/lib/permissions";
-import Navbar from "@/components/Navbar";
+import AppShell from "@/components/AppShell";
 import { fmtMoney } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -19,8 +19,7 @@ export default async function ProjectsPage() {
   });
 
   return (
-    <div className="min-h-screen bg-brand-greenTint">
-      <Navbar active="/projects" />
+    <AppShell active="/projects">
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -82,6 +81,6 @@ export default async function ProjectsPage() {
           </table>
         </div>
       </main>
-    </div>
+    </AppShell>
   );
 }

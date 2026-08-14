@@ -123,6 +123,10 @@ model Project {
   rebates       ProjectRebate[]
   activities    Activity[]
 
+  // Business priority, set by an admin. Nullable + defaulted so adding it is
+  // purely additive — existing rows get "Medium" without a data migration.
+  priority      String        @default("Medium") // High | Medium | Low
+
   // progress
   status        String        @default("Planning") // "Planning" | "On Track" | "At Risk" | "Delayed" | "Complete"
   completionPct Int           @default(0) // 0-100, set by the project lead

@@ -1,6 +1,6 @@
 import { requirePageAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import Navbar from "@/components/Navbar";
+import AppShell from "@/components/AppShell";
 import ComposeMessage from "@/components/ComposeMessage";
 import MessageCard, { type MessageItem } from "@/components/MessageCard";
 
@@ -90,8 +90,7 @@ export default async function MessagesPage() {
   const unread = inbox.filter((m) => !m.read).length;
 
   return (
-    <div className="min-h-screen bg-brand-greenTint">
-      <Navbar active="/messages" />
+    <AppShell active="/messages">
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-6">
         <div>
           <p className="kicker mb-1">[ Z1POWER ]</p>
@@ -129,6 +128,6 @@ export default async function MessagesPage() {
           </section>
         )}
       </main>
-    </div>
+    </AppShell>
   );
 }

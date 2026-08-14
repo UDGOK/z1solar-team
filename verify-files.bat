@@ -8,10 +8,10 @@ set FAIL=0
 
 echo Checking src\app\projects\[id]\page.tsx ...
 for /f %%A in ('find /c /v "" ^< "src\app\projects\[id]\page.tsx"') do set LINES1=%%A
-if "%LINES1%"=="328" (
-  echo   OK - 328 lines, this is the project detail page
+if "%LINES1%"=="327" (
+  echo   OK - 327 lines, this is the project detail page
 ) else (
-  echo   *** WRONG - found %LINES1% lines, expected 328 ***
+  echo   *** WRONG - found %LINES1% lines, expected 327 ***
   echo   *** This file should be the FULL project page, not financials! ***
   set FAIL=1
 )
@@ -19,10 +19,10 @@ if "%LINES1%"=="328" (
 echo.
 echo Checking src\app\projects\[id]\financials\page.tsx ...
 for /f %%A in ('find /c /v "" ^< "src\app\projects\[id]\financials\page.tsx"') do set LINES2=%%A
-if "%LINES2%"=="62" (
-  echo   OK - 62 lines, this is the financials page
+if "%LINES2%"=="61" (
+  echo   OK - 61 lines, this is the financials page
 ) else (
-  echo   *** WRONG - found %LINES2% lines, expected 62 ***
+  echo   *** WRONG - found %LINES2% lines, expected 61 ***
   set FAIL=1
 )
 

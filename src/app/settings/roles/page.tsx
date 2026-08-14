@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { requirePageAuth } from "@/lib/auth";
 import { getGlobalCapabilities } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
-import Navbar from "@/components/Navbar";
+import AppShell from "@/components/AppShell";
 import RoleManager, { type RoleItem } from "@/components/RoleManager";
 
 export const dynamic = "force-dynamic";
@@ -26,8 +26,7 @@ export default async function RolesPage() {
   });
 
   return (
-    <div className="min-h-screen bg-brand-greenTint">
-      <Navbar active="/settings" />
+    <AppShell active="/settings">
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-5">
         <div>
           <Link href="/settings" className="text-xs font-semibold text-brand-greenDark hover:underline">
@@ -43,6 +42,6 @@ export default async function RolesPage() {
           }))}
         />
       </main>
-    </div>
+    </AppShell>
   );
 }

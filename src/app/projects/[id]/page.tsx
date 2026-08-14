@@ -4,7 +4,7 @@ import { requirePageAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getProjectPermissions } from "@/lib/permissions";
 import { ALL_PERMISSIONS, type Permission } from "@/lib/permissionTypes";
-import Navbar from "@/components/Navbar";
+import AppShell from "@/components/AppShell";
 import ToggleCheckbox from "@/components/ToggleCheckbox";
 import DeleteProjectButton from "@/components/DeleteProjectButton";
 import ProjectFiles from "@/components/ProjectFiles";
@@ -111,8 +111,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
     : [];
 
   return (
-    <div className="min-h-screen bg-brand-greenTint">
-      <Navbar active="/projects" />
+    <AppShell active="/projects">
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex items-start justify-between mb-6 gap-4">
           <div>
@@ -323,6 +322,6 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           <ActivityFeed projectId={project.id} />
         </div>
       </main>
-    </div>
+    </AppShell>
   );
 }

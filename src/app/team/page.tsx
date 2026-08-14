@@ -1,7 +1,7 @@
 import { requirePageAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getSettings } from "@/lib/settings";
-import Navbar from "@/components/Navbar";
+import AppShell from "@/components/AppShell";
 import AddMemberForm from "@/components/AddMemberForm";
 import TeamMemberRow from "@/components/TeamMemberRow";
 import WhatsAppLinkForm from "@/components/WhatsAppLinkForm";
@@ -18,8 +18,7 @@ export default async function TeamPage() {
   ]);
 
   return (
-    <div className="min-h-screen bg-brand-greenTint">
-      <Navbar active="/team" />
+    <AppShell active="/team">
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-8">
         <div>
           <p className="kicker mb-1">[ Z1POWER ]</p>
@@ -72,6 +71,6 @@ export default async function TeamPage() {
 
         <WhatsAppLinkForm initialLink={settings.whatsappLink} />
       </main>
-    </div>
+    </AppShell>
   );
 }

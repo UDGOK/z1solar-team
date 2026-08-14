@@ -1856,3 +1856,75 @@ export async function transferProjectOwnership(projectId: string, newOwnerId: st
   revalidatePath(`/projects/${projectId}`);
   return { ok: true };
 }
+
+// ---------- Inline quick-edit (dashboard cards) ----------
+
+/**
+ * Rename a project and/or set its priority, without going through the full
+ * project form. Deliberately narrow: it only ever writes these two fields, so
+ * a quick edit can't accidentally clobber financials, dates, or team data the
+ * way a full-form save could if the client sent stale values.
+ */
+export async function quickUpdateProject(
+  projectId: string,
+  data: { title?: string; priority?: string }
+) {
+  const me = await requireAuth();
+  const perms = await getProjectPermissions(me, projectId);
+
+  const existing = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { title: true, priority: true },
+  });
+  if (!existing) throw new Error("Project not found.");
+
+  // Renaming is an admin/owner-level change; priority is lighter-touch and
+  // follows the same permission as editing status.
+  const isAdmin = me.role === "ADMIN";
+  const owner = await prisma.project.findUnique({ where: { id: projectId }, select: { ownerId: true } });
+  const isOwner = owner?.ownerId === me.id;
+
+  const patch: { title?: string; priority?: string } = {};
+
+  if (data.title !== undefined) {
+    if (!isAdmin && !isOwner) throw new Error("Only an admin or the project owner can rename a project.");
+    const t = data.title.trim();
+    if (!t) throw new Error("Project name can't be empty.");
+    if (t.length > 120) throw new Error("Project name is too long (120 characters max).");
+    patch.title = t;
+  }
+
+  if (data.priority !== undefined) {
+    if (!isAdmin && !isOwner && !perms.canEditStatus) {
+      throw new Error("You don't have permission to change priority on this project.");
+    }
+    if (!["High", "Medium", "Low"].includes(data.priority)) {
+      throw new Error("Priority must be High, Medium, or Low.");
+    }
+    patch.priority = data.priority;
+  }
+
+  if (Object.keys(patch).length === 0) return { ok: true };
+
+  await prisma.project.update({ where: { id: projectId }, data: patch });
+
+  const bits: string[] = [];
+  if (patch.title && patch.title !== existing.title) bits.push(`renamed to "${patch.title}"`);
+  if (patch.priority && patch.priority !== existing.priority) {
+    bits.push(`priority ${existing.priority} → ${patch.priority}`);
+  }
+  if (bits.length) {
+    await logActivity({
+      projectId,
+      actor: me,
+      action: "project.updated",
+      summary: bits.join(", "),
+      meta: { from: existing, to: patch },
+    });
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/projects");
+  revalidatePath(`/projects/${projectId}`);
+  return { ok: true };
+}
