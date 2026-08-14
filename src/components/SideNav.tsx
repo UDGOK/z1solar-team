@@ -10,9 +10,11 @@ const MAIN = [
   { href: "/dashboard", label: "Dashboard", icon: "grid" },
   { href: "/tasks", label: "Tasks", icon: "check" },
   { href: "/messages", label: "Messages", icon: "chat" },
+  { href: "/meetings", label: "Meetings", icon: "calendar" },
 ];
 
 const WORKSPACE = [
+  { href: "/resources", label: "Resources", icon: "folder" },
   { href: "/trade-shows", label: "Trade shows", icon: "calendar" },
   { href: "/team", label: "Team", icon: "users" },
   { href: "/settings", label: "Settings", icon: "cog" },

@@ -50,6 +50,16 @@ export default async function SettingsPage() {
           </div>
         )}
 
+        {caps.canManageCategories && (
+          <div className="card p-5 bg-white">
+            <p className="kicker mb-2">Project Categories</p>
+            <p className="text-xs text-brand-inkFaint mb-3">
+              Create, rename, recolour or remove the categories projects are grouped by.
+            </p>
+            <Link href="/settings/categories" className="btn-secondary text-xs">Manage Categories →</Link>
+          </div>
+        )}
+
         {isAdmin && (
           <>
             <MeetingLinkForm initialLink={settings.meetingLink} />

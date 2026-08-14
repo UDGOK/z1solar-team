@@ -1722,6 +1722,12 @@ export type RoleInput = {
   canSendAlerts: boolean;
   canManageTradeShows: boolean;
   canViewReports: boolean;
+  canManageCategories: boolean;
+  canViewMeetings: boolean;
+  canManageMeetings: boolean;
+  canTakeMeetingNotes: boolean;
+  canViewResources: boolean;
+  canManageResources: boolean;
   defaultCanEditTalkingPoints: boolean;
   defaultCanEditKeyDates: boolean;
   defaultCanEditTodos: boolean;
@@ -1766,6 +1772,12 @@ export async function saveRole(id: string | null, data: RoleInput) {
     canSendAlerts: !!data.canSendAlerts,
     canManageTradeShows: !!data.canManageTradeShows,
     canViewReports: !!data.canViewReports,
+    canManageCategories: !!data.canManageCategories,
+    canViewMeetings: !!data.canViewMeetings,
+    canManageMeetings: !!data.canManageMeetings,
+    canTakeMeetingNotes: !!data.canTakeMeetingNotes,
+    canViewResources: !!data.canViewResources,
+    canManageResources: !!data.canManageResources,
     defaultCanEditTalkingPoints: !!data.defaultCanEditTalkingPoints,
     defaultCanEditKeyDates: !!data.defaultCanEditKeyDates,
     defaultCanEditTodos: !!data.defaultCanEditTodos,
@@ -1957,5 +1969,366 @@ export async function deleteProjectFromList(id: string) {
 
   revalidatePath("/projects");
   revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+// ---------- Project categories ----------
+
+async function requireCategoryManager() {
+  const me = await requireAuth();
+  if (me.role === "ADMIN") return me;
+  const { getGlobalCapabilities } = await import("./permissions");
+  const caps = await getGlobalCapabilities(me);
+  if (!caps.canManageCategories) throw new Error("You don't have permission to manage categories.");
+  return me;
+}
+
+export async function saveCategory(id: string | null, data: { name: string; color: string; order: number }) {
+  const me = await requireCategoryManager();
+  const name = data.name.trim();
+  if (!name) throw new Error("Category name is required.");
+
+  if (id) {
+    const existing = await prisma.category.findUnique({ where: { id } });
+    if (!existing) throw new Error("Category not found.");
+
+    // Rename must move every project onto the new name at the same time —
+    // Project.category is a string, so an un-paired rename would orphan them.
+    if (existing.name !== name) {
+      const clash = await prisma.category.findFirst({ where: { name, NOT: { id } } });
+      if (clash) throw new Error(`A category called "${name}" already exists.`);
+      await prisma.$transaction([
+        prisma.category.update({ where: { id }, data: { name, color: data.color, order: data.order } }),
+        prisma.project.updateMany({ where: { category: existing.name }, data: { category: name } }),
+      ]);
+      await logActivity({ actor: me, action: "project.updated", summary: `Renamed category "${existing.name}" to "${name}"` });
+    } else {
+      await prisma.category.update({ where: { id }, data: { color: data.color, order: data.order } });
+    }
+  } else {
+    const clash = await prisma.category.findFirst({ where: { name } });
+    if (clash) throw new Error(`A category called "${name}" already exists.`);
+    await prisma.category.create({ data: { name, color: data.color, order: data.order } });
+    await logActivity({ actor: me, action: "project.created", summary: `Created category "${name}"` });
+  }
+
+  revalidatePath("/settings/categories");
+  revalidatePath("/projects");
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+/** Delete a category. Optionally move its projects to another one first. */
+export async function deleteCategory(id: string, reassignTo?: string) {
+  const me = await requireCategoryManager();
+  const cat = await prisma.category.findUnique({ where: { id } });
+  if (!cat) throw new Error("Category not found.");
+
+  const inUse = await prisma.project.count({ where: { category: cat.name } });
+  if (inUse > 0) {
+    if (!reassignTo) {
+      throw new Error(
+        `${inUse} project${inUse === 1 ? " is" : "s are"} still in "${cat.name}". Choose a category to move them to first.`
+      );
+    }
+    const target = await prisma.category.findUnique({ where: { id: reassignTo } });
+    if (!target) throw new Error("The category you chose to move them to no longer exists.");
+    await prisma.$transaction([
+      prisma.project.updateMany({ where: { category: cat.name }, data: { category: target.name } }),
+      prisma.category.delete({ where: { id } }),
+    ]);
+    await logActivity({ actor: me, action: "project.updated", summary: `Deleted category "${cat.name}", moved ${inUse} project(s) to "${target.name}"` });
+  } else {
+    await prisma.category.delete({ where: { id } });
+    await logActivity({ actor: me, action: "project.updated", summary: `Deleted empty category "${cat.name}"` });
+  }
+
+  revalidatePath("/settings/categories");
+  revalidatePath("/projects");
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+// ---------- Meetings ----------
+
+async function meetingRights(memberId: string, isAdmin: boolean, meetingId?: string) {
+  const { getGlobalCapabilities } = await import("./permissions");
+  const me = { id: memberId, role: isAdmin ? "ADMIN" : "MEMBER" } as any;
+  const caps = await getGlobalCapabilities(me);
+  let canEditNotes = isAdmin || caps.canTakeMeetingNotes;
+  let isOrganizer = false;
+  if (meetingId) {
+    const m = await prisma.meeting.findUnique({ where: { id: meetingId }, select: { organizerId: true } });
+    isOrganizer = m?.organizerId === memberId;
+    if (!canEditNotes) {
+      const att = await prisma.meetingAttendee.findUnique({
+        where: { meetingId_memberId: { meetingId, memberId } },
+      });
+      canEditNotes = !!att?.canEditNotes;
+    }
+  }
+  return {
+    canView: isAdmin || caps.canViewMeetings,
+    canManage: isAdmin || caps.canManageMeetings || isOrganizer,
+    canEditNotes: canEditNotes || isAdmin || isOrganizer,
+  };
+}
+
+export type MeetingInput = {
+  title: string;
+  description?: string;
+  startsAt: string;
+  durationMins: number;
+  location?: string;
+  joinUrl?: string;
+  projectId?: string | null;
+  status?: string;
+};
+
+export async function saveMeeting(id: string | null, data: MeetingInput) {
+  const me = await requireAuth();
+  const rights = await meetingRights(me.id, me.role === "ADMIN", id ?? undefined);
+  if (!rights.canManage) throw new Error("You don't have permission to manage meetings.");
+  if (!data.title?.trim()) throw new Error("Meeting title is required.");
+  if (!data.startsAt) throw new Error("Date and time are required.");
+
+  const payload = {
+    title: data.title.trim(),
+    description: data.description?.trim() || null,
+    startsAt: new Date(data.startsAt),
+    durationMins: Number(data.durationMins) || 60,
+    location: data.location?.trim() || null,
+    joinUrl: data.joinUrl?.trim() || null,
+    projectId: data.projectId || null,
+    ...(data.status ? { status: data.status } : {}),
+  };
+
+  const meeting = id
+    ? await prisma.meeting.update({ where: { id }, data: payload })
+    : await prisma.meeting.create({ data: { ...payload, organizerId: me.id } });
+
+  await logActivity({
+    actor: me,
+    action: id ? "project.updated" : "project.created",
+    summary: `${id ? "Updated" : "Scheduled"} meeting "${meeting.title}"`,
+    meta: { meetingId: meeting.id },
+  });
+
+  revalidatePath("/meetings");
+  return { ok: true, id: meeting.id };
+}
+
+export async function deleteMeeting(id: string) {
+  const me = await requireAuth();
+  const rights = await meetingRights(me.id, me.role === "ADMIN", id);
+  if (!rights.canManage) throw new Error("You don't have permission to delete this meeting.");
+  await prisma.meeting.delete({ where: { id } });
+  revalidatePath("/meetings");
+  return { ok: true };
+}
+
+export async function setMeetingAttendees(meetingId: string, memberIds: string[]) {
+  const me = await requireAuth();
+  const rights = await meetingRights(me.id, me.role === "ADMIN", meetingId);
+  if (!rights.canManage) throw new Error("You don't have permission to change attendees.");
+
+  const meeting = await prisma.meeting.findUnique({ where: { id: meetingId }, select: { title: true, startsAt: true } });
+  const next = Array.from(new Set(memberIds.filter(Boolean)));
+  const existing = await prisma.meetingAttendee.findMany({ where: { meetingId } });
+  const previous = new Set(existing.map((a) => a.memberId));
+  const added = next.filter((x) => !previous.has(x));
+
+  await prisma.$transaction([
+    prisma.meetingAttendee.deleteMany({ where: { meetingId, memberId: { notIn: next.length ? next : ["__none__"] } } }),
+    ...next.filter((x) => !previous.has(x)).map((memberId) =>
+      prisma.meetingAttendee.create({ data: { meetingId, memberId } })
+    ),
+  ]);
+
+  if (meeting && added.length) {
+    await prisma.notification.createMany({
+      data: added
+        .filter((x) => x !== me.id)
+        .map((recipientId) => ({
+          recipientId,
+          type: "GENERAL",
+          title: `You're invited: ${meeting.title}`,
+          body: meeting.startsAt.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }),
+          link: "/meetings",
+        })),
+    });
+  }
+
+  revalidatePath("/meetings");
+  return { ok: true };
+}
+
+/** Anyone invited can set their own RSVP; organisers/admins can set anyone's. */
+export async function setMeetingRsvp(meetingId: string, memberId: string, status: string) {
+  const me = await requireAuth();
+  const rights = await meetingRights(me.id, me.role === "ADMIN", meetingId);
+  if (memberId !== me.id && !rights.canManage) {
+    throw new Error("You can only change your own RSVP.");
+  }
+  if (!["Invited", "Accepted", "Declined", "Attended"].includes(status)) {
+    throw new Error("Invalid RSVP status.");
+  }
+  await prisma.meetingAttendee.upsert({
+    where: { meetingId_memberId: { meetingId, memberId } },
+    create: { meetingId, memberId, status },
+    update: { status },
+  });
+  revalidatePath("/meetings");
+  return { ok: true };
+}
+
+/** Per-meeting note-taking rights, so an admin can delegate for one meeting. */
+export async function setMeetingNoteTaker(meetingId: string, memberId: string, canEditNotes: boolean) {
+  const me = await requireAuth();
+  const rights = await meetingRights(me.id, me.role === "ADMIN", meetingId);
+  if (!rights.canManage) throw new Error("You don't have permission to assign note takers.");
+  await prisma.meetingAttendee.upsert({
+    where: { meetingId_memberId: { meetingId, memberId } },
+    create: { meetingId, memberId, canEditNotes },
+    update: { canEditNotes },
+  });
+  revalidatePath("/meetings");
+  return { ok: true };
+}
+
+export async function saveMeetingNotes(meetingId: string, notes: string) {
+  const me = await requireAuth();
+  const rights = await meetingRights(me.id, me.role === "ADMIN", meetingId);
+  if (!rights.canEditNotes) throw new Error("You don't have permission to write notes for this meeting.");
+  await prisma.meeting.update({
+    where: { id: meetingId },
+    data: { notes: notes.trim() || null, notesBy: me.name, notesAt: new Date(), status: "Held" },
+  });
+  await logActivity({ actor: me, action: "project.updated", summary: "Added meeting notes", meta: { meetingId } });
+  revalidatePath("/meetings");
+  return { ok: true };
+}
+
+export async function saveAgendaItems(meetingId: string, items: { text: string; ownerId?: string | null }[]) {
+  const me = await requireAuth();
+  const rights = await meetingRights(me.id, me.role === "ADMIN", meetingId);
+  if (!rights.canManage) throw new Error("You don't have permission to edit this agenda.");
+  const clean = items.filter((i) => i.text.trim());
+  await prisma.$transaction([
+    prisma.meetingAgendaItem.deleteMany({ where: { meetingId } }),
+    ...clean.map((i, order) =>
+      prisma.meetingAgendaItem.create({
+        data: { meetingId, text: i.text.trim(), order, ownerId: i.ownerId || null },
+      })
+    ),
+  ]);
+  revalidatePath("/meetings");
+  return { ok: true };
+}
+
+/** Ticking agenda items during a meeting — deliberately open to attendees. */
+export async function toggleAgendaItem(itemId: string, covered: boolean) {
+  const me = await requireAuth();
+  const item = await prisma.meetingAgendaItem.findUnique({ where: { id: itemId }, select: { meetingId: true } });
+  if (!item) throw new Error("Agenda item not found.");
+  const rights = await meetingRights(me.id, me.role === "ADMIN", item.meetingId);
+  const isAttendee = await prisma.meetingAttendee.findUnique({
+    where: { meetingId_memberId: { meetingId: item.meetingId, memberId: me.id } },
+  });
+  if (!rights.canManage && !rights.canEditNotes && !isAttendee) {
+    throw new Error("Only attendees can tick off agenda items.");
+  }
+  await prisma.meetingAgendaItem.update({ where: { id: itemId }, data: { covered } });
+  revalidatePath("/meetings");
+  return { ok: true };
+}
+
+// ---------- Resources ----------
+
+async function requireResourceManager() {
+  const me = await requireAuth();
+  if (me.role === "ADMIN") return me;
+  const { getGlobalCapabilities } = await import("./permissions");
+  const caps = await getGlobalCapabilities(me);
+  if (!caps.canManageResources) throw new Error("You don't have permission to manage resources.");
+  return me;
+}
+
+export async function saveResourceCategory(
+  id: string | null,
+  data: { name: string; description?: string; icon: string; color: string; order: number }
+) {
+  await requireResourceManager();
+  const name = data.name.trim();
+  if (!name) throw new Error("Category name is required.");
+  const payload = {
+    name,
+    description: data.description?.trim() || null,
+    icon: data.icon || "folder",
+    color: data.color || "#4CAB3E",
+    order: Number(data.order) || 0,
+  };
+  if (id) await prisma.resourceCategory.update({ where: { id }, data: payload });
+  else await prisma.resourceCategory.create({ data: payload });
+  revalidatePath("/resources");
+  return { ok: true };
+}
+
+export async function deleteResourceCategory(id: string) {
+  await requireResourceManager();
+  const cat = await prisma.resourceCategory.findUnique({ where: { id }, include: { items: true } });
+  if (!cat) throw new Error("Category not found.");
+  if (cat.items.length > 0) {
+    throw new Error(`"${cat.name}" still has ${cat.items.length} item(s). Remove or move them first.`);
+  }
+  await prisma.resourceCategory.delete({ where: { id } });
+  revalidatePath("/resources");
+  return { ok: true };
+}
+
+export async function saveResource(
+  id: string | null,
+  data: {
+    categoryId: string;
+    title: string;
+    description?: string;
+    kind: string;
+    url?: string;
+    pathname?: string;
+    filename?: string;
+    contentType?: string;
+    size?: number;
+    tags?: string;
+  }
+) {
+  const me = await requireResourceManager();
+  if (!data.title?.trim()) throw new Error("Title is required.");
+  if (data.kind === "LINK" && !data.url?.trim()) throw new Error("A link resource needs a URL.");
+  if (data.kind === "FILE" && !id && !data.pathname) throw new Error("Upload a file first.");
+
+  const payload = {
+    categoryId: data.categoryId,
+    title: data.title.trim(),
+    description: data.description?.trim() || null,
+    kind: data.kind,
+    url: data.url?.trim() || null,
+    pathname: data.pathname || null,
+    filename: data.filename || null,
+    contentType: data.contentType || null,
+    size: data.size ?? 0,
+    tags: data.tags?.trim() || null,
+  };
+
+  if (id) await prisma.resource.update({ where: { id }, data: payload });
+  else await prisma.resource.create({ data: { ...payload, uploadedById: me.id } });
+
+  revalidatePath("/resources");
+  return { ok: true };
+}
+
+export async function deleteResource(id: string) {
+  await requireResourceManager();
+  await prisma.resource.delete({ where: { id } });
+  revalidatePath("/resources");
   return { ok: true };
 }

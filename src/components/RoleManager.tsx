@@ -25,6 +25,12 @@ const GLOBAL_CAPS: { key: string; label: string; hint: string }[] = [
   { key: "canSendAlerts", label: "Send alerts", hint: "Push must-acknowledge alerts" },
   { key: "canManageTradeShows", label: "Manage trade shows", hint: "Add and edit shows" },
   { key: "canViewReports", label: "View reports", hint: "Cross-project reporting" },
+  { key: "canManageCategories", label: "Manage categories", hint: "Create, rename and delete project categories" },
+  { key: "canViewMeetings", label: "View meetings", hint: "See the meetings area at all" },
+  { key: "canManageMeetings", label: "Manage meetings", hint: "Schedule, edit and delete meetings" },
+  { key: "canTakeMeetingNotes", label: "Take meeting notes", hint: "Write notes on any meeting" },
+  { key: "canViewResources", label: "View resources", hint: "See flyers, templates and the knowledge base" },
+  { key: "canManageResources", label: "Manage resources", hint: "Add, edit and remove resources" },
 ];
 
 const DEFAULTS: { key: string; label: string }[] = [

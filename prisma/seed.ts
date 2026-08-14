@@ -216,18 +216,34 @@ async function main() {
     { name: "Mohammad", email: "muzz.siddiki@gmail.com" },
   ];
   for (const a of ADMIN_ACCOUNTS) {
+    // Match on email FIRST. Names get edited in the app (e.g. "Yasir" becomes
+    // "Yasir Jahangir"), and a name-only lookup then finds a different record
+    // and tries to give it an email that's already taken — which fails with a
+    // unique-constraint error and aborts the whole seed.
+    const byEmail = await prisma.teamMember.findUnique({ where: { email: a.email } });
+    if (byEmail) {
+      if (byEmail.role !== "ADMIN") {
+        await prisma.teamMember.update({ where: { id: byEmail.id }, data: { role: "ADMIN" } });
+        console.log(`  ${byEmail.name} promoted to ADMIN (matched on ${a.email}).`);
+      } else {
+        console.log(`  ${byEmail.name} is already an admin — skipping.`);
+      }
+      continue;
+    }
+
     const found = await prisma.teamMember.findFirst({ where: { name: a.name } });
     if (!found) {
-      console.log(`  No team member named "${a.name}" found — skipping.`);
+      console.log(`  No team member with email ${a.email} or named "${a.name}" — skipping.`);
       continue;
     }
-    if (found.role === "ADMIN" && found.email === a.email) {
-      console.log(`  ${a.name} is already an admin with the correct email — skipping.`);
+    if (found.email && found.email !== a.email) {
+      console.log(`  "${found.name}" already signs in as ${found.email} — leaving it alone.`);
+      if (found.role !== "ADMIN") {
+        await prisma.teamMember.update({ where: { id: found.id }, data: { role: "ADMIN" } });
+        console.log(`  ${found.name} promoted to ADMIN.`);
+      }
       continue;
     }
-    // Email must be unique — if another record already has this email
-    // (shouldn't happen in normal use), this will throw loudly rather than
-    // silently overwrite someone else's login.
     await prisma.teamMember.update({
       where: { id: found.id },
       data: { role: "ADMIN", email: a.email },
@@ -242,6 +258,7 @@ async function main() {
       canCreateProjects: true, canDeleteAnyProject: true, canViewAllProjects: true, canEditAllProjects: true,
       canViewAllFinancials: true, canEditAllFinancials: true, canManageTeam: true, canManageRoles: true,
       canSendAlerts: true, canManageTradeShows: true, canViewReports: true,
+      canManageCategories: true, canViewMeetings: true, canManageMeetings: true, canTakeMeetingNotes: true, canViewResources: true, canManageResources: true,
       defaultCanEditTalkingPoints: true, defaultCanEditKeyDates: true, defaultCanEditTodos: true,
       defaultCanEditQuestions: true, defaultCanEditTeam: true, defaultCanViewFiles: true,
       defaultCanUploadFiles: true, defaultCanViewFinancials: true, defaultCanEditFinancials: true,
@@ -250,6 +267,7 @@ async function main() {
       canCreateProjects: true, canDeleteAnyProject: false, canViewAllProjects: true, canEditAllProjects: true,
       canViewAllFinancials: true, canEditAllFinancials: true, canManageTeam: true, canManageRoles: false,
       canSendAlerts: true, canManageTradeShows: true, canViewReports: true,
+      canManageCategories: true, canViewMeetings: true, canManageMeetings: true, canTakeMeetingNotes: true, canViewResources: true, canManageResources: true,
       defaultCanEditTalkingPoints: true, defaultCanEditKeyDates: true, defaultCanEditTodos: true,
       defaultCanEditQuestions: true, defaultCanEditTeam: true, defaultCanViewFiles: true,
       defaultCanUploadFiles: true, defaultCanViewFinancials: true, defaultCanEditFinancials: false,
@@ -258,6 +276,7 @@ async function main() {
       canCreateProjects: true, canDeleteAnyProject: false, canViewAllProjects: true, canEditAllProjects: false,
       canViewAllFinancials: true, canEditAllFinancials: false, canManageTeam: false, canManageRoles: false,
       canSendAlerts: true, canManageTradeShows: true, canViewReports: true,
+      canManageCategories: false, canViewMeetings: true, canManageMeetings: true, canTakeMeetingNotes: true, canViewResources: true, canManageResources: true,
       defaultCanEditTalkingPoints: true, defaultCanEditKeyDates: true, defaultCanEditTodos: true,
       defaultCanEditQuestions: true, defaultCanEditTeam: false, defaultCanViewFiles: true,
       defaultCanUploadFiles: true, defaultCanViewFinancials: true, defaultCanEditFinancials: false,
@@ -266,6 +285,7 @@ async function main() {
       canCreateProjects: true, canDeleteAnyProject: false, canViewAllProjects: false, canEditAllProjects: false,
       canViewAllFinancials: false, canEditAllFinancials: false, canManageTeam: false, canManageRoles: false,
       canSendAlerts: false, canManageTradeShows: false, canViewReports: false,
+      canManageCategories: false, canViewMeetings: true, canManageMeetings: false, canTakeMeetingNotes: false, canViewResources: true, canManageResources: false,
       defaultCanEditTalkingPoints: true, defaultCanEditKeyDates: true, defaultCanEditTodos: true,
       defaultCanEditQuestions: true, defaultCanEditTeam: true, defaultCanViewFiles: true,
       defaultCanUploadFiles: true, defaultCanViewFinancials: false, defaultCanEditFinancials: false,
@@ -274,6 +294,7 @@ async function main() {
       canCreateProjects: false, canDeleteAnyProject: false, canViewAllProjects: false, canEditAllProjects: false,
       canViewAllFinancials: false, canEditAllFinancials: false, canManageTeam: false, canManageRoles: false,
       canSendAlerts: false, canManageTradeShows: false, canViewReports: false,
+      canManageCategories: false, canViewMeetings: true, canManageMeetings: false, canTakeMeetingNotes: false, canViewResources: true, canManageResources: false,
       defaultCanEditTalkingPoints: true, defaultCanEditKeyDates: false, defaultCanEditTodos: true,
       defaultCanEditQuestions: false, defaultCanEditTeam: false, defaultCanViewFiles: true,
       defaultCanUploadFiles: false, defaultCanViewFinancials: false, defaultCanEditFinancials: false,
@@ -334,6 +355,47 @@ async function main() {
     console.log(`  Migrated ${migrated} of ${legacy.length} task assignment(s) to multi-assignee.`);
   } else {
     console.log("  No legacy assignments to migrate.");
+  }
+
+  // Seed project categories from whatever the live projects already use, so
+  // the editable list matches reality rather than a hard-coded guess.
+  console.log("Seeding project categories…");
+  const CAT_COLORS: Record<string, string> = {
+    "Solar & Battery": "#4CAB3E",
+    "Data Centers": "#3F9634",
+    Certifications: "#E8743B",
+    International: "#1C1C1C",
+    "Other Projects": "#3F9634",
+    "Other Matters": "#8A8A85",
+    "New Project": "#E8743B",
+  };
+  const distinct = await prisma.project.findMany({ select: { category: true }, distinct: ["category"] });
+  const names = new Set<string>(distinct.map((d) => d.category));
+  for (const n of Object.keys(CAT_COLORS)) names.add(n);
+  let order = 0;
+  for (const name of Array.from(names)) {
+    const existing = await prisma.category.findFirst({ where: { name } });
+    if (!existing) {
+      await prisma.category.create({ data: { name, color: CAT_COLORS[name] ?? "#8A8A85", order: order++ } });
+      console.log(`  Created category "${name}"`);
+    }
+  }
+
+  // Starter resource library.
+  console.log("Seeding resource categories…");
+  const RESOURCE_CATS = [
+    { name: "Marketing Flyers", description: "Brochures, one-pagers and sell sheets.", icon: "megaphone", color: "#E8743B", order: 0 },
+    { name: "Knowledge Base", description: "How-tos, process docs and internal guides.", icon: "book", color: "#4CAB3E", order: 1 },
+    { name: "Spec Sheets", description: "Equipment datasheets and technical specs.", icon: "file", color: "#3F9634", order: 2 },
+    { name: "Templates", description: "Reusable proposal, contract and report templates.", icon: "template", color: "#8A8A85", order: 3 },
+    { name: "Certifications", description: "UL, 9540 and compliance documentation.", icon: "badge", color: "#1C1C1C", order: 4 },
+  ];
+  for (const rc of RESOURCE_CATS) {
+    const existing = await prisma.resourceCategory.findFirst({ where: { name: rc.name } });
+    if (!existing) {
+      await prisma.resourceCategory.create({ data: rc });
+      console.log(`  Created resource category "${rc.name}"`);
+    }
   }
 
   console.log("Done.");
