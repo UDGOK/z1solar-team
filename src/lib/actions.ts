@@ -1928,3 +1928,34 @@ export async function quickUpdateProject(
   revalidatePath(`/projects/${projectId}`);
   return { ok: true };
 }
+
+/**
+ * Delete from a list view. Same permission rules as deleteProject, but returns
+ * instead of redirecting — the caller stays on the projects page and the row
+ * disappears.
+ */
+export async function deleteProjectFromList(id: string) {
+  const me = await requireAuth();
+  const { getGlobalCapabilities } = await import("./permissions");
+  const [proj, caps] = await Promise.all([
+    prisma.project.findUnique({ where: { id }, select: { ownerId: true, title: true } }),
+    getGlobalCapabilities(me),
+  ]);
+  if (!proj) throw new Error("Project not found.");
+
+  const allowed = me.role === "ADMIN" || caps.canDeleteAnyProject || proj.ownerId === me.id;
+  if (!allowed) throw new Error("You can only delete projects you own.");
+
+  await prisma.project.delete({ where: { id } });
+
+  await logActivity({
+    actor: me,
+    action: "project.updated",
+    summary: `Deleted project "${proj.title}"`,
+    meta: { projectId: id },
+  });
+
+  revalidatePath("/projects");
+  revalidatePath("/dashboard");
+  return { ok: true };
+}

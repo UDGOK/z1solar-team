@@ -5,6 +5,8 @@ import AppShell from "@/components/AppShell";
 import TradeShowsHub from "@/components/TradeShowsHub";
 import type { TradeShowItem } from "@/components/TradeShowCard";
 
+import { PAGE_CONTAINER } from "@/lib/layout";
+
 export const dynamic = "force-dynamic";
 
 export default async function TradeShowsPage() {
@@ -65,7 +67,7 @@ export default async function TradeShowsPage() {
 
   return (
     <AppShell active="/trade-shows">
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+      <main className={`${PAGE_CONTAINER}`}>
         <div className="mb-6">
           <p className="kicker mb-1">[ Z1POWER ]</p>
           <h1 className="font-heading text-3xl font-extrabold text-brand-ink">Trade Shows</h1>

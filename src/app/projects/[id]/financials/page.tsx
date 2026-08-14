@@ -8,6 +8,8 @@ import FinancialLedger from "@/components/FinancialLedger";
 import FinancialsLocked from "@/components/FinancialsLocked";
 import { toDateInputValue } from "@/lib/format";
 
+import { PAGE_CONTAINER } from "@/lib/layout";
+
 export const dynamic = "force-dynamic";
 
 export default async function FinancialsPage({ params }: { params: Promise<{ id: string }> }) {
@@ -24,7 +26,7 @@ export default async function FinancialsPage({ params }: { params: Promise<{ id:
 
   return (
     <AppShell active="/projects">
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+      <main className={`${PAGE_CONTAINER} space-y-6`}>
         <div>
           <Link href={`/projects/${project.id}`} className="text-xs font-semibold text-brand-greenDark hover:underline">
             ← Back to project

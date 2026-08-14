@@ -8,6 +8,8 @@ import AppShell from "@/components/AppShell";
 import CategorySection from "@/components/CategorySection";
 import type { CardProject } from "@/components/ProjectCard";
 
+import { PAGE_CONTAINER } from "@/lib/layout";
+
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
@@ -71,7 +73,7 @@ export default async function DashboardPage() {
 
   return (
     <AppShell active="/dashboard">
-      <div className="px-4 sm:px-5 py-4 sm:py-5 max-w-[1100px]">
+      <main className={`${PAGE_CONTAINER}`}>
         <div className="flex justify-between items-start gap-3 mb-4 flex-wrap">
           <div>
             <p className="text-[8.5px] font-semibold tracking-[0.14em] text-brand-green">[ WEEKLY OPERATIONS ]</p>
@@ -113,7 +115,7 @@ export default async function DashboardPage() {
             )}
           </div>
         )}
-      </div>
+      </main>
     </AppShell>
   );
 }

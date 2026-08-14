@@ -4,6 +4,8 @@ import AppShell from "@/components/AppShell";
 import ComposeMessage from "@/components/ComposeMessage";
 import MessageCard, { type MessageItem } from "@/components/MessageCard";
 
+import { PAGE_CONTAINER } from "@/lib/layout";
+
 export const dynamic = "force-dynamic";
 
 export default async function MessagesPage() {
@@ -91,7 +93,7 @@ export default async function MessagesPage() {
 
   return (
     <AppShell active="/messages">
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+      <main className={`${PAGE_CONTAINER} space-y-6`}>
         <div>
           <p className="kicker mb-1">[ Z1POWER ]</p>
           <h1 className="font-heading text-3xl font-extrabold text-brand-ink">Messages</h1>

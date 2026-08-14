@@ -40,7 +40,7 @@ export default function CategorySection({
         <span className="flex-1 h-px bg-brand-line" />
       </div>
 
-      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
         {live.map((p) => (
           <ProjectCard key={p.id} project={p} canEdit={editable.has(p.id)} />
         ))}

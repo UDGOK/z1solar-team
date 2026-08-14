@@ -6,6 +6,8 @@ import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import RoleManager, { type RoleItem } from "@/components/RoleManager";
 
+import { PAGE_CONTAINER } from "@/lib/layout";
+
 export const dynamic = "force-dynamic";
 
 export default async function RolesPage() {
@@ -27,7 +29,7 @@ export default async function RolesPage() {
 
   return (
     <AppShell active="/settings">
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-5">
+      <main className={`${PAGE_CONTAINER} space-y-5`}>
         <div>
           <Link href="/settings" className="text-xs font-semibold text-brand-greenDark hover:underline">
             ← Back to Settings

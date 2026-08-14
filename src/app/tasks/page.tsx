@@ -5,6 +5,8 @@ import AppShell from "@/components/AppShell";
 import TasksHub from "@/components/TasksHub";
 import type { TaskRowData } from "@/components/TaskRow";
 
+import { PAGE_CONTAINER } from "@/lib/layout";
+
 export const dynamic = "force-dynamic";
 
 export default async function TasksPage() {
@@ -68,7 +70,7 @@ export default async function TasksPage() {
 
   return (
     <AppShell active="/tasks">
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+      <main className={`${PAGE_CONTAINER}`}>
         <div className="mb-6">
           <p className="kicker mb-1">[ Z1POWER ]</p>
           <h1 className="font-heading text-3xl font-extrabold text-brand-ink">Tasks</h1>

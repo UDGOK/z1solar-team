@@ -21,6 +21,8 @@ import FinancialsLocked from "@/components/FinancialsLocked";
 import { toggleTodo, toggleQuestion } from "@/lib/actions";
 import { fmtDate } from "@/lib/format";
 
+import { PAGE_CONTAINER } from "@/lib/layout";
+
 export const dynamic = "force-dynamic";
 
 const CAT_COLOR: Record<string, string> = {
@@ -112,7 +114,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
 
   return (
     <AppShell active="/projects">
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+      <main className={`${PAGE_CONTAINER}`}>
         <div className="flex items-start justify-between mb-6 gap-4">
           <div>
             <p className={`tag ${CAT_COLOR[project.category] || "text-brand-greenDark"} mb-1`}>{project.category}</p>

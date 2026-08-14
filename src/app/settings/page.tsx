@@ -10,6 +10,8 @@ import { getGlobalCapabilities } from "@/lib/permissions";
 import InviteManager from "@/components/InviteManager";
 import ChangeOwnPasswordForm from "@/components/ChangeOwnPasswordForm";
 
+import { PAGE_CONTAINER } from "@/lib/layout";
+
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
@@ -32,7 +34,7 @@ export default async function SettingsPage() {
 
   return (
     <AppShell active="/settings">
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8 space-y-8">
+      <main className={`${PAGE_CONTAINER} space-y-8`}>
         <div>
           <p className="kicker mb-1">[ Z1POWER ]</p>
           <h1 className="font-heading text-3xl font-extrabold text-brand-ink">Settings</h1>

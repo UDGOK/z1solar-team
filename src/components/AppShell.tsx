@@ -63,7 +63,9 @@ export default async function AppShell({
         openTaskCount={openTaskCount}
         unreadMessageCount={unreadMessageCount}
       />
-      <main className="flex-1 min-w-0 pb-20 lg:pb-0">{children}</main>
+      {/* Not a <main> — each page renders its own, and nesting them is
+          invalid HTML and breaks screen-reader landmark navigation. */}
+      <div className="flex-1 min-w-0 pb-20 lg:pb-0">{children}</div>
     </div>
   );
 }

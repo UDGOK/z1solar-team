@@ -7,6 +7,8 @@ import TeamMemberRow from "@/components/TeamMemberRow";
 import WhatsAppLinkForm from "@/components/WhatsAppLinkForm";
 import TeamPresence, { PresenceDot } from "@/components/TeamPresence";
 
+import { PAGE_CONTAINER } from "@/lib/layout";
+
 export const dynamic = "force-dynamic";
 
 export default async function TeamPage() {
@@ -19,7 +21,7 @@ export default async function TeamPage() {
 
   return (
     <AppShell active="/team">
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-8">
+      <main className={`${PAGE_CONTAINER} space-y-8`}>
         <div>
           <p className="kicker mb-1">[ Z1POWER ]</p>
           <h1 className="font-heading text-3xl font-extrabold text-brand-ink">Team Directory</h1>
