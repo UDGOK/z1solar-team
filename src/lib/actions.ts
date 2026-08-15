@@ -3458,3 +3458,96 @@ export async function confirmRestore(json: string, confirmation: string) {
   revalidatePath("/projects");
   return { ok: true, ...result };
 }
+
+// ---------- Assistant ----------
+
+export async function askAssistantAction(threadId: string | null, question: string) {
+  const me = await requireAuth();
+  if (!question?.trim()) throw new Error("Ask a question first.");
+
+  let thread = threadId
+    ? await prisma.chatThread.findFirst({
+        where: { id: threadId, memberId: me.id },
+        include: { messages: { orderBy: { createdAt: "asc" } } },
+      })
+    : null;
+
+  if (!thread) {
+    thread = await prisma.chatThread.create({
+      data: {
+        memberId: me.id,
+        // First question makes a serviceable title without another API call.
+        title: question.trim().slice(0, 60),
+      },
+      include: { messages: true },
+    });
+  }
+
+  await prisma.chatMessage.create({
+    data: { threadId: thread.id, role: "user", content: question.trim() },
+  });
+
+  const { askAssistant } = await import("./ai/assistant");
+  const history = (thread.messages ?? []).map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+  const result = await askAssistant(me, history, question.trim());
+
+  if (!result.ok) {
+    // Keep the question in the thread so it isn't lost, but surface the error.
+    throw new Error(result.error || "The assistant couldn't answer.");
+  }
+
+  await prisma.chatMessage.create({
+    data: { threadId: thread.id, role: "assistant", content: result.answer! },
+  });
+  await prisma.chatThread.update({ where: { id: thread.id }, data: { updatedAt: new Date() } });
+
+  revalidatePath("/assistant");
+  return { ok: true, threadId: thread.id, answer: result.answer };
+}
+
+export async function deleteChatThread(id: string) {
+  const me = await requireAuth();
+  const t = await prisma.chatThread.findFirst({ where: { id, memberId: me.id } });
+  if (!t) throw new Error("Conversation not found.");
+  await prisma.chatThread.delete({ where: { id } });
+  revalidatePath("/assistant");
+  return { ok: true };
+}
+
+// ---------- Archive instead of delete ----------
+
+/**
+ * Archives a project rather than destroying it. The schema has always had an
+ * `archived` flag that delete never used — a wrong click was permanently
+ * removing tasks, files, financials, purchases and history with no way back.
+ */
+export async function archiveProject(id: string, archived: boolean) {
+  const me = await requireAuth();
+  const { getGlobalCapabilities } = await import("./permissions");
+  const [proj, caps] = await Promise.all([
+    prisma.project.findUnique({ where: { id }, select: { ownerId: true, title: true, archived: true } }),
+    getGlobalCapabilities(me),
+  ]);
+  if (!proj) throw new Error("Project not found.");
+
+  const allowed = me.role === "ADMIN" || caps.canDeleteAnyProject || proj.ownerId === me.id;
+  if (!allowed) throw new Error("You can only archive projects you own.");
+
+  await prisma.project.update({ where: { id }, data: { archived } });
+
+  const { recordAudit } = await import("./audit");
+  await recordAudit({
+    entityType: "Project",
+    entityId: id,
+    entityLabel: proj.title,
+    action: archived ? "ARCHIVE" : "RESTORE",
+    actor: { id: me.id, name: me.name, email: me.email },
+    summary: archived
+      ? "Archived — hidden from dashboards but fully recoverable"
+      : "Restored from archive",
+  });
+
+  revalidatePath("/projects");
+  revalidatePath("/dashboard");
+  return { ok: true };
+}

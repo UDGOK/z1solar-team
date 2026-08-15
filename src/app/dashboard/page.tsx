@@ -6,6 +6,8 @@ import { getViewableProjectIds, getGlobalCapabilities, getProjectPermissions } f
 import { categoryColor, sortCategories } from "@/lib/categories";
 import AppShell from "@/components/AppShell";
 import CategorySection from "@/components/CategorySection";
+import DashboardActivity from "@/components/DashboardActivity";
+import PortfolioRollup from "@/components/PortfolioRollup";
 import type { CardProject } from "@/components/ProjectCard";
 
 import { PAGE_CONTAINER } from "@/lib/layout";
@@ -95,6 +97,17 @@ export default async function DashboardPage() {
           <Stat label="OVERDUE" value={overdue} color="#C0392B" accent />
           <Stat label="UNOWNED" value={unowned} color="#E8743B" accent />
           <Stat label="TOTAL" value={cards.length} />
+        </div>
+
+        {/* Portfolio position and what the team has been doing — the two
+            questions this page actually gets opened for. */}
+        <div className="grid lg:grid-cols-2 gap-3 mb-5">
+          {caps.canViewAllFinancials || isAdmin ? (
+            <PortfolioRollup projectIds={viewableIds} />
+          ) : (
+            <div />
+          )}
+          <DashboardActivity projectIds={viewableIds} />
         </div>
 
         {orderedCategories.map((name) => (

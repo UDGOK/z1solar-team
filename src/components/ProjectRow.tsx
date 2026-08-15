@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useTransition } from "react";
 import Link from "next/link";
-import { quickUpdateProject, deleteProjectFromList } from "@/lib/actions";
+import { quickUpdateProject, deleteProjectFromList, archiveProject } from "@/lib/actions";
 
 const STATUS_COLOR: Record<string, string> = {
   Planning: "#8A8A85",
@@ -79,10 +79,21 @@ export default function ProjectRow({
     setEditing(false);
   }
 
+  function archive() {
+    // Archiving is the default because it's recoverable. Hard delete is still
+    // available but deliberately harder to reach.
+    if (!confirm(`Archive "${project.title}"?\n\nIt disappears from dashboards and lists but keeps all its tasks, files and financial records. You can restore it later.`)) return;
+    startTransition(async () => {
+      try {
+        await archiveProject(project.id, true);
+      } catch (e: any) {
+        setError(e?.message || "Couldn't archive");
+      }
+    });
+  }
+
   function remove() {
-    // Deliberately requires typing nothing but a confirm — deleting a project
-    // cascades to its tasks, files, financials and history.
-    if (!confirm(`Delete "${project.title}"?\n\nThis also removes its tasks, files, financial records and history. This can't be undone.`)) return;
+    if (!confirm(`PERMANENTLY DELETE "${project.title}"?\n\nThis destroys its tasks, files, financial records, purchases and history. It cannot be undone.\n\nArchiving is usually what you want instead.`)) return;
     startTransition(async () => {
       try {
         await deleteProjectFromList(project.id);
@@ -178,13 +189,23 @@ export default function ProjectRow({
           </button>
         )}
         {canDelete && (
-          <button
-            onClick={remove}
-            disabled={isPending}
-            className="text-[11px] text-brand-inkFaint hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
-          >
-            Delete
-          </button>
+          <>
+            <button
+              onClick={archive}
+              disabled={isPending}
+              className="text-[11px] text-brand-inkFaint hover:text-brand-greenDark opacity-0 group-hover:opacity-100 transition-opacity mr-2"
+            >
+              Archive
+            </button>
+            <button
+              onClick={remove}
+              disabled={isPending}
+              className="text-[11px] text-brand-line hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Permanently delete — archiving is usually better"
+            >
+              Delete
+            </button>
+          </>
         )}
       </td>
     </tr>

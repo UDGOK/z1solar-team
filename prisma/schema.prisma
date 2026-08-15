@@ -37,6 +37,7 @@ model TeamMember {
   todosConfirmed  Todo[]        @relation("TodoConfirmedBy")
   todoComments    TodoComment[]
   meetingImports  MeetingImport[] @relation("ImportedBy")
+  chatThreads        ChatThread[]
   purchasesRequested PurchaseRequest[] @relation("PurchaseRequester")
   purchasesApproved  PurchaseRequest[] @relation("PurchaseApprover")
   purchasesSecondApproved PurchaseRequest[] @relation("PurchaseSecondApprover")
@@ -976,6 +977,46 @@ model ReconciliationRun {
   // JSON detail of each discrepancy: project, stored, computed, difference.
   details       String?
   createdAt     DateTime @default(now())
+}
+
+// Failed sign-in attempts, used for rate limiting. Stored in the database
+// rather than memory because serverless instances don't share state — an
+// in-memory counter would reset constantly and enforce nothing.
+model LoginAttempt {
+  id         String   @id @default(cuid())
+  // Lowercased email OR ip:<address> — we limit on both so neither a single
+  // account nor a single source can be hammered.
+  identifier String
+  successful Boolean  @default(false)
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([identifier, createdAt])
+}
+
+// Saved conversations with the assistant, so a question asked yesterday can
+// be picked up today.
+model ChatThread {
+  id        String   @id @default(cuid())
+  memberId  String
+  member    TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  title     String   @default("New conversation")
+  messages  ChatMessage[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([memberId])
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  threadId  String
+  thread    ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  role      String   // user | assistant
+  content   String
+  createdAt DateTime @default(now())
+
+  @@index([threadId])
 }
 
 model Settings {

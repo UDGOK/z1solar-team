@@ -13,6 +13,7 @@ const MAIN = [
   { href: "/meetings", label: "Meetings", icon: "calendar" },
   { href: "/sms", label: "Texts", icon: "chat" },
   { href: "/purchases", label: "Purchases", icon: "cart" },
+  { href: "/assistant", label: "Assistant", icon: "spark" },
 ];
 
 const WORKSPACE = [
@@ -35,6 +36,7 @@ function Icon({ name, className = "" }: { name: string; className?: string }) {
     search: <><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>,
     menu: <path d="M4 6h16M4 12h16M4 18h16" />,
     cart: <><circle cx="9" cy="20" r="1.5" /><circle cx="18" cy="20" r="1.5" /><path d="M2.5 3h2.2l2.3 12h11.4l2.1-8.5H6" /></>,
+    spark: <path d="M12 3l2 5.5L19.5 10 14 12l-2 5.5L10 12 4.5 10 10 8.5z" />,
   };
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" className={className} aria-hidden="true" {...common}>

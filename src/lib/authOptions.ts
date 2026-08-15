@@ -22,15 +22,37 @@ export const authOptions: NextAuthOptions = {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) return null;
-        const member = await prisma.teamMember.findUnique({
-          where: { email: credentials.email.trim().toLowerCase() },
-        });
+        const email = credentials.email.trim().toLowerCase();
+
+        // Forwarded-for holds the real client IP behind Vercel's proxy.
+        const ip =
+          (req?.headers?.["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ?? null;
+
+        const { checkLoginAllowed, recordLoginAttempt } = await import("./rateLimit");
+
+        // Check BEFORE touching the database or comparing hashes, so a locked
+        // account costs an attacker nothing to discover and gains them nothing.
+        const gate = await checkLoginAllowed(email, ip);
+        if (!gate.allowed) {
+          console.warn(`[auth] rate limited sign-in for ${email}`);
+          return null;
+        }
+
+        const member = await prisma.teamMember.findUnique({ where: { email } });
         // No account, or account has no password set yet (Google-only user)
-        if (!member?.passwordHash) return null;
+        if (!member?.passwordHash) {
+          await recordLoginAttempt(email, false, ip);
+          return null;
+        }
         const valid = await bcrypt.compare(credentials.password, member.passwordHash);
-        if (!valid) return null;
+        if (!valid) {
+          await recordLoginAttempt(email, false, ip);
+          return null;
+        }
+
+        await recordLoginAttempt(email, true, ip);
         return { id: member.id, email: member.email!, name: member.name };
       },
     }),
