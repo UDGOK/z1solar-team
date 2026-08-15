@@ -17,4 +17,4 @@
 63	src/app/projects/[id]/financials/page.tsx
 338	src/app/projects/[id]/page.tsx
 31	src/app/trade-shows/[id]/exhibitors/import/page.tsx
-144	src/app/trade-shows/[id]/exhibitors/page.tsx
+147	src/app/trade-shows/[id]/exhibitors/page.tsx

@@ -38,6 +38,7 @@ export default async function ExhibitorsPage({ params }: { params: Promise<{ id:
       include: {
         vendor: {
           include: {
+            riskAssessedBy: { select: { name: true } },
             tags: { include: { tag: true } },
             contacts: true,
             // Every other show this company has appeared at — the reason
@@ -89,6 +90,8 @@ export default async function ExhibitorsPage({ params }: { params: Promise<{ id:
       reputationScore: r.vendor.reputationScore,
       riskNotes: r.vendor.riskNotes,
       riskSource: r.vendor.riskSource,
+      riskAssessedAt: r.vendor.riskAssessedAt ? r.vendor.riskAssessedAt.toISOString() : null,
+      riskAssessedByName: r.vendor.riskAssessedBy?.name ?? null,
       tagIds: r.vendor.tags.map((t) => t.tagId),
       tagNames: r.vendor.tags.map((t) => t.tag.name),
       contacts: r.vendor.contacts.map((c) => ({

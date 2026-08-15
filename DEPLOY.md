@@ -106,24 +106,19 @@ node scripts/make-manifest.js
 
 ---
 
-# This round — 15 August 2026 (e)
+# This round — 15 August 2026 (f)
 
-Closes the three known gaps: column mapper UI, tag management screen,
-printable target list.
+Adds a Score column to the exhibitor list and a detail panel explaining what a
+score means and where it came from.
 
-**Changed:** new `src/lib/pdf/MeetingTargetListDocument.tsx`,
-new `src/app/api/trade-shows/[id]/target-list/route.ts`,
-new `src/app/settings/vendor-tags/page.tsx`,
-new `src/components/VendorTagManager.tsx`,
-new `tests/columnMap.test.ts`,
-`src/lib/importers/columnMap.ts` (fallback bug fix),
-`src/lib/exhibitors/actions.ts`, `src/components/ExhibitorImportWizard.tsx`,
-`src/components/ExhibitorsHub.tsx`, `src/app/settings/page.tsx`.
+**Changed:** `prisma/schema.prisma` (`riskAssessedBy` relation),
+`src/components/ExhibitorsHub.tsx`,
+`src/app/trade-shows/[id]/exhibitors/page.tsx`.
 
-**No schema change** — `npm run db:push` is a no-op, safe to skip.
+**Schema DID change** — `npm run db:push` is required.
 
-⚠ **The manifest is now 12 files, not 11** (new target-list API route). Use the
-EXTRACT-SAFELY.ps1 from THIS zip.
+> Run `db:push` every round regardless. It is additive and idempotent, and
+> saying "safe to skip" once already cost a broken page.
 
 ### Full sequence
 
@@ -132,28 +127,32 @@ cd /d "C:\\Users\\Yasir\\Downloads\\github clone z1\\z1solar-team"
 npm install
 npm test
 npm run build
+npm run db:push
+npm run db:seed
 git status
 git add -A
-git commit -m "Add column mapping step, vendor tag management screen, and printable meeting target list"
+git commit -m "Add score column and scoring detail panel to the exhibitor list"
 git push origin main
 ```
 
 `npm test` reports **145** assertions. `npm run test:db` reports **200**.
 
-### What's new, and where
+### What "Assess with AI" does
 
-| Feature | Where |
+Finds every company on the show with no score yet, sends them to DeepSeek in
+batches of 12, writes back a 0-100 score and a one-line note. Resumable — it
+never re-scores a company already assessed, so pressing it again continues
+rather than starting over. Requires `DEEPSEEK_API_KEY` in Vercel.
+
+### Reading the Score column
+
+| Shown | Means |
 |---|---|
-| Column mapping step | Import exhibitors → upload a .csv/.xlsx → new "Map columns" step before review |
-| Vendor tag management | Settings → Manage Vendor Tags |
-| Printable target list | Exhibitors & meetings → **Print target list** (opens a PDF) |
+| `88` | Scored, checked by a person |
+| `88?` | Scored by AI, nobody has verified it |
+| `n/r` | Asked, model didn't recognise the company — deliberately not a zero |
+| `—` | Never assessed |
 
-The target list prints only the flagged meetings. Add `?all=1` to the URL for
-every exhibitor instead — useful as a floor directory, though at 811 rows it is
-not something to carry.
-
-### Still to do by hand
-
-**Fix the Datacloud dates.** Trade Shows → Datacloud USA 2026 → Details → Edit,
-set 1 September to 3 September 2026. The countdown on the Trade Shows page reads
-from this record.
+Click any score for the band definitions, the note, where it came from and
+when, and a box to set your own. Saving your own marks it checked and removes
+the `?`.

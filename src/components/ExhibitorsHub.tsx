@@ -38,6 +38,8 @@ export type ExhibitorItem = {
     reputationScore: number | null;
     riskNotes: string | null;
     riskSource: string | null;
+    riskAssessedAt: string | null;
+    riskAssessedByName: string | null;
     tagIds: string[];
     tagNames: string[];
     contacts: { id: string; name: string; title: string | null; email: string | null; phone: string | null }[];
@@ -100,6 +102,7 @@ export default function ExhibitorsHub({
   const [flaggedOnly, setFlaggedOnly] = useState(false);
   const [sortBy, setSortBy] = useState<"booth" | "name" | "flagged">("flagged");
   const [openId, setOpenId] = useState<string | null>(null);
+  const [scoreOpen, setScoreOpen] = useState<ExhibitorItem | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -336,6 +339,19 @@ export default function ExhibitorsHub({
         </div>
       </div>
 
+      {scoreOpen && (
+        <ScoreDetail
+          item={scoreOpen}
+          canAnnotate={canAnnotate}
+          busy={pending}
+          onClose={() => setScoreOpen(null)}
+          onSave={(sc, n) => {
+            run(() => setVendorScore(scoreOpen.vendor.id, sc, n, scoreOpen.id));
+            setScoreOpen(null);
+          }}
+        />
+      )}
+
       {/* ---- the list ---- */}
       {items.length === 0 ? (
         <div className="card p-10 text-center">
@@ -370,6 +386,9 @@ export default function ExhibitorsHub({
                 <th className="tag hidden w-[110px] border-b border-brand-line px-3 py-2 text-left text-brand-inkFaint lg:table-cell">
                   Owner
                 </th>
+                <th className="tag w-[70px] border-b border-brand-line px-3 py-2 text-left text-brand-inkFaint">
+                  Score
+                </th>
                 <th className="tag w-[56px] border-b border-brand-line px-3 py-2 text-left text-brand-inkFaint">
                   Flag
                 </th>
@@ -389,11 +408,12 @@ export default function ExhibitorsHub({
                   canAnnotate={canAnnotate}
                   busy={pending}
                   run={run}
+                  onOpenScore={setScoreOpen}
                 />
               ))}
               {visible.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-3 py-10 text-center text-sm text-brand-inkFaint">
+                  <td colSpan={7} className="px-3 py-10 text-center text-sm text-brand-inkFaint">
                     Nothing matches those filters.
                   </td>
                 </tr>
@@ -425,6 +445,7 @@ function Row({
   canAnnotate,
   busy,
   run,
+  onOpenScore,
 }: {
   item: ExhibitorItem;
   open: boolean;
@@ -436,6 +457,7 @@ function Row({
   canAnnotate: boolean;
   busy: boolean;
   run: (fn: () => Promise<unknown>) => void;
+  onOpenScore: (item: ExhibitorItem) => void;
 }) {
   const [note, setNote] = useState("");
 
@@ -459,21 +481,6 @@ function Row({
             <div className="mt-0.5 max-w-[440px] text-[12.5px] text-brand-inkSoft line-clamp-2">
               {item.vendor.description}
             </div>
-          )}
-          {item.vendor.reputationScore !== null && (
-            <span
-              title={item.vendor.riskSource === "manual" ? "Checked by a person" : "AI-generated, unverified"}
-              className={`mr-2 inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px] font-bold ${
-                item.vendor.reputationScore >= 80
-                  ? "bg-[#E7F3E4] text-brand-greenDark"
-                  : item.vendor.reputationScore >= 60
-                    ? "bg-[#FFF3E0] text-[#B45309]"
-                    : "bg-[#FDE8E8] text-[#B91C1C]"
-              }`}
-            >
-              {item.vendor.reputationScore}
-              {item.vendor.riskSource !== "manual" && <span className="opacity-60">?</span>}
-            </span>
           )}
           {item.vendor.websiteUrl && (
             <a
@@ -508,6 +515,9 @@ function Row({
           )}
         </td>
         <td className="px-3 py-3 align-top">
+          <ScoreBadge item={item} onOpen={onOpenScore} />
+        </td>
+        <td className="px-3 py-3 align-top">
           <button
             disabled={!canAnnotate || busy}
             onClick={(e) => {
@@ -528,7 +538,7 @@ function Row({
 
       {open && (
         <tr className="border-l-[3px] border-brand-green bg-brand-greenTint">
-          <td colSpan={6} className="px-4 py-4">
+          <td colSpan={7} className="px-4 py-4">
             <div className="grid gap-6 lg:grid-cols-[1.35fr_1fr]">
               {/* ---- the company (shared across shows) ---- */}
               <div>
@@ -1010,6 +1020,256 @@ function AddCompany({
         <button className="btn-secondary" onClick={onDone}>
           Cancel
         </button>
+      </div>
+    </div>
+  );
+}
+
+/** The band a score falls in, and what that band actually means. */
+export function scoreBand(score: number): { label: string; meaning: string; cls: string } {
+  if (score >= 85)
+    return {
+      label: "Established",
+      meaning: "Major established firm, long track record, no meaningful concerns.",
+      cls: "bg-[#E7F3E4] text-brand-greenDark border-[#cfe3ca]",
+    };
+  if (score >= 70)
+    return {
+      label: "Solid",
+      meaning: "Known and solid. Ordinary commercial risk.",
+      cls: "bg-[#E7F3E4] text-brand-greenDark border-[#cfe3ca]",
+    };
+  if (score >= 50)
+    return {
+      label: "Thin",
+      meaning: "Small, young, narrow, or little is known beyond that it exists.",
+      cls: "bg-[#FFF3E0] text-[#B45309] border-[#F0DCB0]",
+    };
+  if (score >= 25)
+    return {
+      label: "Concerns",
+      meaning: "Real concerns, or very little substance behind the name.",
+      cls: "bg-[#FDE8E8] text-[#B91C1C] border-[#F3C4C4]",
+    };
+  return {
+    label: "Serious concerns",
+    meaning: "Serious, well-documented problems.",
+    cls: "bg-[#FDE8E8] text-[#B91C1C] border-[#F3C4C4]",
+  };
+}
+
+/**
+ * The score cell.
+ *
+ * A blank is deliberately shown as a dash and not a zero — "not assessed" and
+ * "scored zero" mean opposite things, and rendering them the same way is how a
+ * list like this starts lying to you. The "?" marks a score no human has
+ * confirmed.
+ */
+function ScoreBadge({
+  item,
+  onOpen,
+}: {
+  item: ExhibitorItem;
+  onOpen: (item: ExhibitorItem) => void;
+}) {
+  const score = item.vendor.reputationScore;
+  const assessed = !!item.vendor.riskAssessedAt;
+  const verified = item.vendor.riskSource === "manual";
+
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen(item);
+      }}
+      title={
+        score === null
+          ? assessed
+            ? "Assessed — company not recognised. Click for detail."
+            : "Not assessed yet. Click to score it."
+          : verified
+            ? "Checked by a person. Click for detail."
+            : "AI-generated, unverified. Click for detail."
+      }
+      className={`w-full rounded-md border px-1.5 py-1 text-center font-mono text-[12px] font-bold transition-colors hover:brightness-95 ${
+        score === null
+          ? "border-brand-line bg-white text-brand-inkFaint"
+          : scoreBand(score).cls
+      }`}
+    >
+      {score === null ? (assessed ? "n/r" : "—") : score}
+      {score !== null && !verified && <span className="opacity-50">?</span>}
+    </button>
+  );
+}
+
+/**
+ * What the score means, where it came from, and how to overrule it.
+ *
+ * Shown on click rather than hover because the provenance line is the important
+ * part and people need time to read it. An unverified AI score and a number
+ * somebody checked look similar in a table; they are not similar, and this panel
+ * is where that difference is made explicit.
+ */
+function ScoreDetail({
+  item,
+  canAnnotate,
+  busy,
+  onClose,
+  onSave,
+}: {
+  item: ExhibitorItem;
+  canAnnotate: boolean;
+  busy: boolean;
+  onClose: () => void;
+  onSave: (score: number | null, notes: string | null) => void;
+}) {
+  const v = item.vendor;
+  const [draft, setDraft] = useState(v.reputationScore === null ? "" : String(v.reputationScore));
+  const [notes, setNotes] = useState(v.riskNotes ?? "");
+  const verified = v.riskSource === "manual";
+  const assessed = !!v.riskAssessedAt;
+  const band = v.reputationScore !== null ? scoreBand(v.reputationScore) : null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4 pt-16"
+      onClick={onClose}
+    >
+      <div
+        className="card w-full max-w-lg bg-white p-5"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="kicker">[ Standing ]</p>
+            <h3 className="mt-1 font-heading text-lg font-bold text-brand-ink">{v.name}</h3>
+          </div>
+          <button className="btn-secondary text-xs" onClick={onClose}>
+            Close
+          </button>
+        </div>
+
+        {v.reputationScore !== null && band ? (
+          <div className={`mt-4 rounded-md border p-3 ${band.cls}`}>
+            <div className="flex items-baseline gap-2">
+              <span className="font-heading text-3xl font-extrabold">{v.reputationScore}</span>
+              <span className="font-mono text-xs font-bold uppercase tracking-wider">
+                {band.label}
+              </span>
+            </div>
+            <p className="mt-1 text-[12.5px]">{band.meaning}</p>
+          </div>
+        ) : (
+          <div className="mt-4 rounded-md border border-brand-line bg-white p-3">
+            <div className="font-heading text-base font-bold text-brand-ink">
+              {assessed ? "Not recognised" : "Not assessed yet"}
+            </div>
+            <p className="mt-1 text-[12.5px] text-brand-inkSoft">
+              {assessed
+                ? "The model was asked about this company and didn't recognise it, so it returned no score rather than a polite guess. That's the honest answer — score it yourself below if you know them."
+                : "Nobody has scored this company. Run “Assess with AI”, or set a score by hand below."}
+            </p>
+          </div>
+        )}
+
+        {v.riskNotes && (
+          <div className="mt-3">
+            <span className="label">Note</span>
+            <p className="text-[13px] text-brand-inkSoft">{v.riskNotes}</p>
+          </div>
+        )}
+
+        <div className="mt-3 rounded-md border border-brand-line bg-brand-greenTint p-3 text-[12.5px]">
+          <span className="label">Where this came from</span>
+          {verified ? (
+            <p className="text-brand-inkSoft">
+              Set by hand{v.riskAssessedByName ? ` by ${v.riskAssessedByName}` : ""}
+              {v.riskAssessedAt
+                ? ` on ${new Date(v.riskAssessedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
+                : ""}
+              . Treat it as checked.
+            </p>
+          ) : assessed ? (
+            <p className="text-brand-inkSoft">
+              <b className="text-brand-amber">AI-generated and unverified.</b> Produced by DeepSeek
+              from its training data
+              {v.riskAssessedAt
+                ? ` on ${new Date(v.riskAssessedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
+                : ""}
+              . It is an impression, not research &mdash; there are no sources behind it and it
+              can&rsquo;t see anything recent. Don&rsquo;t quote it to anyone. Overwrite it below
+              once you know better; that marks it checked and removes the &ldquo;?&rdquo;.
+            </p>
+          ) : (
+            <p className="text-brand-inkSoft">Nothing yet.</p>
+          )}
+        </div>
+
+        <div className="mt-4">
+          <span className="label">How the scale works</span>
+          <table className="w-full border-collapse text-[12px]">
+            <tbody>
+              {[
+                ["85–100", "Established", "Major firm, long track record, no meaningful concerns"],
+                ["70–84", "Solid", "Known and solid, ordinary commercial risk"],
+                ["50–69", "Thin", "Small, young, narrow, or little known"],
+                ["25–49", "Concerns", "Real concerns, or very little substance"],
+                ["0–24", "Serious concerns", "Well-documented problems"],
+                ["blank", "Not assessed / not recognised", "No opinion recorded — deliberately not a zero"],
+              ].map(([range, label, meaning]) => (
+                <tr key={range} className="border-b border-[#EEEEEA] last:border-0">
+                  <td className="py-1 pr-2 font-mono font-bold text-brand-ink">{range}</td>
+                  <td className="py-1 pr-2 font-semibold text-brand-inkSoft">{label}</td>
+                  <td className="py-1 text-brand-inkFaint">{meaning}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {canAnnotate && (
+          <div className="mt-4 border-t border-brand-line pt-3">
+            <span className="label">Set it yourself</span>
+            <div className="flex gap-2">
+              <input
+                className="input max-w-[92px]"
+                inputMode="numeric"
+                placeholder="—"
+                value={draft}
+                disabled={busy}
+                onChange={(e) => setDraft(e.target.value.replace(/[^0-9]/g, "").slice(0, 3))}
+              />
+              <input
+                className="input"
+                placeholder="What you actually know about them"
+                value={notes}
+                disabled={busy}
+                onChange={(e) => setNotes(e.target.value)}
+              />
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                className="btn-primary text-xs"
+                disabled={busy}
+                onClick={() =>
+                  onSave(
+                    draft.trim() === "" ? null : Math.max(0, Math.min(100, Number(draft))),
+                    notes.trim() || null
+                  )
+                }
+              >
+                Save as checked
+              </button>
+              <span className="text-[11.5px] text-brand-inkFaint">
+                Leave the number blank to clear it back to &ldquo;no opinion&rdquo;.
+              </span>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

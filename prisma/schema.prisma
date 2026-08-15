@@ -56,6 +56,7 @@ model TeamMember {
   exhibitorOwnerships     TradeShowExhibitorOwner[] @relation("ExhibitorOwners")
   exhibitorNotes          ExhibitorNote[]           @relation("ExhibitorNoteAuthor")
   vendorsCreated          Vendor[]                  @relation("VendorCreatedBy")
+  vendorsAssessed         Vendor[]                  @relation("VendorRiskAssessor")
   exhibitorImports        ExhibitorImport[]         @relation("ExhibitorImportedBy")
   // Module-level access, set by an admin from the Trade Shows page.
   canViewTradeShows       Boolean                   @default(true)
@@ -1091,6 +1092,7 @@ model Vendor {
   // Who last set it by hand, so a verified score is visibly different from an
   // inherited one.
   riskAssessedById String?
+  riskAssessedBy   TeamMember? @relation("VendorRiskAssessor", fields: [riskAssessedById], references: [id], onDelete: SetNull)
 
   createdById String?
   createdBy   TeamMember? @relation("VendorCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
