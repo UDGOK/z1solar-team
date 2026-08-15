@@ -22,3 +22,7 @@
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# throwaway test database (npm run test:db)
+prisma/test.db
+prisma/schema.test.prisma

@@ -413,6 +413,37 @@ async function main() {
     }
   }
 
+  // Vendor tags used to categorise trade show exhibitors. Seeded here rather
+  // than lazily on first page load, so the tag filter is already populated the
+  // moment the first exhibitor list is imported.
+  //
+  // Matched on slug (the lowercased name) rather than name, so re-running the
+  // seed after someone renames "Data Centre" to "Data Center" doesn't recreate
+  // it — the same case-insensitivity the create and rename actions enforce.
+  console.log("Seeding vendor tags…");
+  const VENDOR_TAGS = [
+    "Inverters", "BESS", "Modules", "Racking", "Trackers", "BOS", "Switchgear",
+    "Transformers", "Generation", "Cooling", "Data Centre", "EPC", "O&M",
+    "Financing", "Legal", "Software", "Fibre & Telecom", "Manufacturer",
+    "Developer", "Consulting",
+  ];
+  let tagOrder = 0;
+  let tagsCreated = 0;
+  for (const name of VENDOR_TAGS) {
+    const slug = name.trim().toLowerCase();
+    const existing = await prisma.vendorTag.findUnique({ where: { slug } });
+    if (!existing) {
+      await prisma.vendorTag.create({ data: { name, slug, sortOrder: tagOrder } });
+      tagsCreated++;
+    }
+    tagOrder++;
+  }
+  console.log(
+    tagsCreated > 0
+      ? `  Created ${tagsCreated} vendor tag(s).`
+      : "  All vendor tags already present — nothing to do."
+  );
+
   // --- Project codes for SMS routing ---
   // Derived from the title: first significant word, or an acronym for longer
   // names. Uniqueness is enforced with a numeric suffix rather than failing.

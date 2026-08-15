@@ -1,50 +1,61 @@
 @echo off
-REM Verifies the two files that keep getting mixed up during manual copy/paste.
-REM Run this from inside your z1solar-team folder AFTER copying the new files,
-REM BEFORE running npm run build or git push.
+REM Verifies bracket-route files against FILE-MANIFEST.txt.
+REM
+REM Run this from inside the project folder any time you suspect a bad
+REM extraction - especially after unzipping on Windows, where File Explorer's
+REM "Extract All" mangles [bracket] folder names and silently misplaces files.
+REM
+REM This used to hard-code two files and two line counts (338 / 63). It now
+REM reads the generated manifest, so it covers every bracket route and never
+REM reports a false failure just because a file was legitimately edited.
 
 setlocal enabledelayedexpansion
-set FAIL=0
 
-echo Checking src\app\projects\[id]\page.tsx ...
-for /f %%A in ('find /c /v "" ^< "src\app\projects\[id]\page.tsx"') do set LINES1=%%A
-if "%LINES1%"=="329" (
-  echo   OK - 329 lines, this is the project detail page
-) else (
-  echo   *** WRONG - found %LINES1% lines, expected 329 ***
-  echo   *** This file should be the FULL project page, not financials! ***
-  set FAIL=1
-)
-
-echo.
-echo Checking src\app\projects\[id]\financials\page.tsx ...
-for /f %%A in ('find /c /v "" ^< "src\app\projects\[id]\financials\page.tsx"') do set LINES2=%%A
-if "%LINES2%"=="63" (
-  echo   OK - 63 lines, this is the financials page
-) else (
-  echo   *** WRONG - found %LINES2% lines, expected 63 ***
-  set FAIL=1
-)
-
-echo.
-if "%FAIL%"=="1" (
-  echo ============================================
-  echo  FILES ARE MIXED UP - DO NOT BUILD OR PUSH YET
-  echo  Go back to the two individual files provided,
-  echo  double check you renamed and placed each one
-  echo  into the CORRECT folder, then run this again.
-  echo ============================================
+if not exist "FILE-MANIFEST.txt" (
+  echo FILE-MANIFEST.txt not found.
+  echo Run this from the project root - the folder containing package.json.
+  pause
   exit /b 1
-) else (
-  echo ============================================
-  echo  Both files verified correct. Safe to continue:
-  echo    npm install
-  echo    npm run build
-  echo    npm run db:push
-  echo    npm run db:seed
-  echo    git add -A
-  echo    git commit -m "Update"
-  echo    git push origin main
-  echo ============================================
-  exit /b 0
 )
+
+set CHECKED=0
+set BAD=0
+
+echo.
+echo Checking bracket-route files...
+echo.
+
+for /f "usebackq tokens=1,2 delims=	" %%A in ("FILE-MANIFEST.txt") do (
+  set "FIRST=%%A"
+  if not "!FIRST:~0,1!"=="#" (
+    if not "%%B"=="" (
+      set /a CHECKED+=1
+      set "REL=%%B"
+      set "WIN=!REL:/=\!"
+      if not exist "!WIN!" (
+        echo   MISSING   !REL!
+        set /a BAD+=1
+      ) else (
+        set COUNT=0
+        for /f %%C in ('type "!WIN!" ^| find /c /v ""') do set COUNT=%%C
+        if "!COUNT!"=="%%A" (
+          echo   ok        !REL!  ^(!COUNT! lines^)
+        ) else (
+          echo   WRONG     !REL!  ^(!COUNT! lines, expected %%A^)
+          set /a BAD+=1
+        )
+      )
+    )
+  )
+)
+
+echo.
+if "%BAD%"=="0" (
+  echo ALL %CHECKED% BRACKET-ROUTE FILES CORRECT.
+  echo Safe to build and push.
+) else (
+  echo %BAD% OF %CHECKED% FILES ARE WRONG.
+  echo Do NOT build or push. Re-extract with EXTRACT-SAFELY.ps1.
+)
+echo.
+pause

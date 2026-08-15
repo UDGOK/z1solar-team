@@ -8,16 +8,16 @@ datasource db {
 }
 
 model TeamMember {
-  id          String          @id @default(cuid())
-  name        String
-  title       String?
-  email       String?         @unique // Google sign-in identity AND email/password login
-  phone       String?
+  id         String  @id @default(cuid())
+  name       String
+  title      String?
+  email      String? @unique // Google sign-in identity AND email/password login
+  phone      String?
   // Legacy field, retained so existing checks keep working during rollout.
   // "ADMIN" here still means full system access regardless of roleId.
-  role        String          @default("MEMBER") // "MEMBER" | "ADMIN"
-  roleId      String?
-  customRole  Role?           @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  role       String  @default("MEMBER") // "MEMBER" | "ADMIN"
+  roleId     String?
+  customRole Role?   @relation(fields: [roleId], references: [id], onDelete: SetNull)
 
   // Email + password login (optional — a person can use Google instead, or both).
   // Set by the person themselves via an invite link; admins never see or set it.
@@ -25,46 +25,50 @@ model TeamMember {
   inviteToken        String?   @unique
   inviteTokenExpires DateTime?
 
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  leads       Project[]       @relation("ProjectLead")
-  ownedProjects Project[]     @relation("ProjectOwner")
-  memberships ProjectMember[]
-  access      ProjectAccess[]
-  assignedTodos Todo[]        @relation("TodoAssignee")
-  todoAssignments TodoAssignee[]
-  todosCompleted  Todo[]        @relation("TodoCompletedBy")
-  todosConfirmed  Todo[]        @relation("TodoConfirmedBy")
-  todoComments    TodoComment[]
-  meetingImports  MeetingImport[] @relation("ImportedBy")
-  chatThreads        ChatThread[]
-  purchasesRequested PurchaseRequest[] @relation("PurchaseRequester")
-  purchasesApproved  PurchaseRequest[] @relation("PurchaseApprover")
-  purchasesSecondApproved PurchaseRequest[] @relation("PurchaseSecondApprover")
-  purchaseComments   PurchaseComment[]
-  meetingsOrganized Meeting[]        @relation("MeetingOrganizer")
-  meetingAttendance MeetingAttendee[]
-  agendaOwned       MeetingAgendaItem[] @relation("AgendaOwner")
-  resourcesUploaded Resource[]       @relation("ResourceUploader")
-  createdTodos  Todo[]        @relation("TodoCreator")
-  notifications Notification[] @relation("NotificationRecipient")
-  sentMessages     Message[]          @relation("MessageSender")
-  activities       Activity[]
-  savedViews       SavedView[]
-  tradeShowAttendance TradeShowAttendee[]
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+  leads                   Project[]            @relation("ProjectLead")
+  ownedProjects           Project[]            @relation("ProjectOwner")
+  memberships             ProjectMember[]
+  access                  ProjectAccess[]
+  assignedTodos           Todo[]               @relation("TodoAssignee")
+  todoAssignments         TodoAssignee[]
+  todosCompleted          Todo[]               @relation("TodoCompletedBy")
+  todosConfirmed          Todo[]               @relation("TodoConfirmedBy")
+  todoComments            TodoComment[]
+  meetingImports          MeetingImport[]      @relation("ImportedBy")
+  chatThreads             ChatThread[]
+  purchasesRequested      PurchaseRequest[]    @relation("PurchaseRequester")
+  purchasesApproved       PurchaseRequest[]    @relation("PurchaseApprover")
+  purchasesSecondApproved PurchaseRequest[]    @relation("PurchaseSecondApprover")
+  purchaseComments        PurchaseComment[]
+  meetingsOrganized       Meeting[]            @relation("MeetingOrganizer")
+  meetingAttendance       MeetingAttendee[]
+  agendaOwned             MeetingAgendaItem[]  @relation("AgendaOwner")
+  resourcesUploaded       Resource[]           @relation("ResourceUploader")
+  createdTodos            Todo[]               @relation("TodoCreator")
+  notifications           Notification[]       @relation("NotificationRecipient")
+  sentMessages            Message[]            @relation("MessageSender")
+  activities              Activity[]
+  savedViews              SavedView[]
+  tradeShowAttendance     TradeShowAttendee[]
+  exhibitorsOwned         TradeShowExhibitor[] @relation("ExhibitorOwner")
+  exhibitorNotes          ExhibitorNote[]      @relation("ExhibitorNoteAuthor")
+  vendorsCreated          Vendor[]             @relation("VendorCreatedBy")
+  exhibitorImports        ExhibitorImport[]    @relation("ExhibitorImportedBy")
   // Module-level access, set by an admin from the Trade Shows page.
-  canViewTradeShows   Boolean @default(true)
-  canManageTradeShows Boolean @default(false)
+  canViewTradeShows       Boolean              @default(true)
+  canManageTradeShows     Boolean              @default(false)
   // Presence. Updated on page loads, throttled so it isn't a write per request.
-  lastSeenAt          DateTime?
+  lastSeenAt              DateTime?
   // SMS. optedOut is set automatically when someone texts STOP — US law
   // requires we honour it immediately and never message them again.
-  smsEnabled          Boolean   @default(true)
-  smsOptedOut         Boolean   @default(false)
-  smsMessages         SmsMessage[] @relation("SmsMember")
-  messageReceipts  MessageRecipient[]
-  subscriptions ReportSubscription[]
-  emailOnTaskAssigned Boolean @default(true)
+  smsEnabled              Boolean              @default(true)
+  smsOptedOut             Boolean              @default(false)
+  smsMessages             SmsMessage[]         @relation("SmsMember")
+  messageReceipts         MessageRecipient[]
+  subscriptions           ReportSubscription[]
+  emailOnTaskAssigned     Boolean              @default(true)
 }
 
 // Per-person, per-project weekly report subscription. Admin picks exactly
@@ -77,89 +81,90 @@ model ReportSubscription {
   memberId  String
   member    TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
-  enabled          Boolean @default(true)
-  includeStatus    Boolean @default(true)
-  includeTasks     Boolean @default(true)
-  includeKeyDates  Boolean @default(false)
-  includeQuestions Boolean @default(false)
+  enabled           Boolean @default(true)
+  includeStatus     Boolean @default(true)
+  includeTasks      Boolean @default(true)
+  includeKeyDates   Boolean @default(false)
+  includeQuestions  Boolean @default(false)
   includeFinancials Boolean @default(false)
 
   lastSentAt DateTime?
-  updatedAt  DateTime @updatedAt
+  updatedAt  DateTime  @updatedAt
 
   @@unique([projectId, memberId])
 }
 
 model Project {
-  id           String          @id @default(cuid())
-  title        String
+  id                String                      @id @default(cuid())
+  title             String
   // Optional short label shown on the dashboard highlight card. Falls back to
   // `title` when empty, so existing projects are unaffected.
-  highlightTitle String?
-  category     String // "Solar & Battery" | "Other Projects" | "Other Matters" | "New Project"
-  leadId       String?
-  lead         TeamMember?     @relation("ProjectLead", fields: [leadId], references: [id])
+  highlightTitle    String?
+  category          String // "Solar & Battery" | "Other Projects" | "Other Matters" | "New Project"
+  leadId            String?
+  lead              TeamMember?                 @relation("ProjectLead", fields: [leadId], references: [id])
   // Whoever created the project. Owners get full control of their own
   // projects without needing an explicit ProjectAccess row.
-  ownerId      String?
-  owner        TeamMember?     @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  members      ProjectMember[]
-  talkingPoints TalkingPoint[]
-  keyDates     KeyDate[]
-  todos        Todo[]
-  questions    OpenQuestion[]
-  files        ProjectFile[]
-  access       ProjectAccess[]
-  lineItems    FinancialLineItem[]
-  subscriptions ReportSubscription[]
-  meetings     Meeting[]
-  smsMessages  SmsMessage[]
-  meetingImports MeetingImport[]
-  purchases      PurchaseRequest[]
+  ownerId           String?
+  owner             TeamMember?                 @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  members           ProjectMember[]
+  talkingPoints     TalkingPoint[]
+  keyDates          KeyDate[]
+  todos             Todo[]
+  questions         OpenQuestion[]
+  files             ProjectFile[]
+  access            ProjectAccess[]
+  lineItems         FinancialLineItem[]
+  subscriptions     ReportSubscription[]
+  exhibitorInterest TradeShowExhibitorProject[]
+  meetings          Meeting[]
+  smsMessages       SmsMessage[]
+  meetingImports    MeetingImport[]
+  purchases         PurchaseRequest[]
 
   // financials
-  estBudget    Float           @default(0)
-  committed    Float           @default(0)
-  actualSpend  Float           @default(0)
-  q3Proj       Float           @default(0)
-  q4Proj       Float           @default(0)
-  q1Proj       Float           @default(0)
-  q2Proj       Float           @default(0)
-  notes        String?
+  estBudget   Float   @default(0)
+  committed   Float   @default(0)
+  actualSpend Float   @default(0)
+  q3Proj      Float   @default(0)
+  q4Proj      Float   @default(0)
+  q1Proj      Float   @default(0)
+  q2Proj      Float   @default(0)
+  notes       String?
 
   // Site / location
-  address       String?
-  city          String?
-  state         String?   // 2-letter, drives rebate lookups
-  postalCode    String?
-  latitude      Float?
-  longitude     Float?
+  address    String?
+  city       String?
+  state      String? // 2-letter, drives rebate lookups
+  postalCode String?
+  latitude   Float?
+  longitude  Float?
 
   // Owner / client contact
-  ownerName     String?
-  ownerCompany  String?
-  ownerEmail    String?
-  ownerPhone    String?
-  ownerNotes    String?
+  ownerName    String?
+  ownerCompany String?
+  ownerEmail   String?
+  ownerPhone   String?
+  ownerNotes   String?
 
-  rebates       ProjectRebate[]
-  activities    Activity[]
+  rebates    ProjectRebate[]
+  activities Activity[]
 
   // Short reference code used for SMS routing ("MEAD: concrete poured") and
   // on POs and purchase records. Unique so a text can never be ambiguous.
-  code         String?       @unique
+  code String? @unique
 
   // Business priority, set by an admin. Nullable + defaulted so adding it is
   // purely additive — existing rows get "Medium" without a data migration.
-  priority      String        @default("Medium") // High | Medium | Low
+  priority String @default("Medium") // High | Medium | Low
 
   // progress
-  status        String        @default("Planning") // "Planning" | "On Track" | "At Risk" | "Delayed" | "Complete"
-  completionPct Int           @default(0) // 0-100, set by the project lead
+  status        String @default("Planning") // "Planning" | "On Track" | "At Risk" | "Delayed" | "Complete"
+  completionPct Int    @default(0) // 0-100, set by the project lead
 
-  archived     Boolean         @default(false)
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model ProjectMember {
@@ -192,72 +197,72 @@ model KeyDate {
 }
 
 model Todo {
-  id          String      @id @default(cuid())
-  projectId   String
-  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  text        String
-  done        Boolean     @default(false)
-  order       Int         @default(0)
+  id         String         @id @default(cuid())
+  projectId  String
+  project    Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  text       String
+  done       Boolean        @default(false)
+  order      Int            @default(0)
   // Assignee does NOT need ProjectAccess on this project — a task can be
   // handed to anyone on the team. Their access to the task itself is what
   // grants them sight of it (see My Tasks).
   // DEPRECATED single-assignee field. Retained only so the seed script can
   // backfill existing rows into the TodoAssignee join table. Nothing reads
   // it at runtime — use `assignees` instead.
-  assigneeId  String?
-  assignee    TeamMember? @relation("TodoAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  assignees   TodoAssignee[]
+  assigneeId String?
+  assignee   TeamMember?    @relation("TodoAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  assignees  TodoAssignee[]
 
   // Completion is two-stage when it came out of a meeting: the assignee marks
   // it done, then the project lead confirms. Without that second step "done"
   // is just one person's claim, which is exactly what weekly meetings exist to
   // check.
-  requiresConfirmation Boolean @default(false)
-  completedById String?
-  completedBy   TeamMember? @relation("TodoCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
-  completedAt   DateTime?
-  confirmedById String?
-  confirmedBy   TeamMember? @relation("TodoConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
-  confirmedAt   DateTime?
+  requiresConfirmation Boolean     @default(false)
+  completedById        String?
+  completedBy          TeamMember? @relation("TodoCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  completedAt          DateTime?
+  confirmedById        String?
+  confirmedBy          TeamMember? @relation("TodoConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
+  confirmedAt          DateTime?
   // Set when a lead rejects a completion, with the reason in the thread.
-  reopenedAt    DateTime?
+  reopenedAt           DateTime?
 
-  comments      TodoComment[]
+  comments            TodoComment[]
   meetingImportItemId String?
 
   sourceMeetingId String?
-  sourceMeeting   Meeting? @relation("MeetingTasks", fields: [sourceMeetingId], references: [id], onDelete: SetNull)
-  dueDate     DateTime?
-  createdById String?
-  createdBy   TeamMember? @relation("TodoCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt   DateTime    @default(now())
+  sourceMeeting   Meeting?    @relation("MeetingTasks", fields: [sourceMeetingId], references: [id], onDelete: SetNull)
+  dueDate         DateTime?
+  createdById     String?
+  createdBy       TeamMember? @relation("TodoCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime    @default(now())
 }
 
 // In-app notifications (bell + dashboard). Email delivery is layered on top
 // of these rows later rather than replacing them.
 // Many-to-many: a task can be assigned to several people at once.
 model TodoAssignee {
-  id       String     @id @default(cuid())
-  todoId   String
-  todo     Todo       @relation(fields: [todoId], references: [id], onDelete: Cascade)
-  memberId String
-  member   TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  assignedAt DateTime @default(now())
+  id         String     @id @default(cuid())
+  todoId     String
+  todo       Todo       @relation(fields: [todoId], references: [id], onDelete: Cascade)
+  memberId   String
+  member     TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  assignedAt DateTime   @default(now())
 
   @@unique([todoId, memberId])
   @@index([memberId])
 }
 
 model Notification {
-  id         String     @id @default(cuid())
+  id          String     @id @default(cuid())
   recipientId String
-  recipient  TeamMember @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
-  type       String     // "TASK_ASSIGNED" | "TASK_DUE_SOON" | "GENERAL"
-  title      String
-  body       String?
-  link       String?    // where clicking it should take them
-  read       Boolean    @default(false)
-  createdAt  DateTime   @default(now())
+  recipient   TeamMember @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  type        String // "TASK_ASSIGNED" | "TASK_DUE_SOON" | "GENERAL"
+  title       String
+  body        String?
+  link        String? // where clicking it should take them
+  read        Boolean    @default(false)
+  createdAt   DateTime   @default(now())
 
   @@index([recipientId, read])
 }
@@ -297,17 +302,17 @@ model ProjectAccess {
   memberId  String
   member    TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
-  canView             Boolean @default(false) // master switch — see the project at all
+  canView              Boolean @default(false) // master switch — see the project at all
   canEditTalkingPoints Boolean @default(false)
-  canEditKeyDates     Boolean @default(false)
-  canEditTodos        Boolean @default(false)
-  canEditQuestions    Boolean @default(false)
-  canEditTeam         Boolean @default(false)
-  canViewFiles        Boolean @default(false)
-  canUploadFiles      Boolean @default(false)
-  canViewFinancials   Boolean @default(false)
-  canEditFinancials   Boolean @default(false)
-  canEditStatus       Boolean @default(false) // status + completion %
+  canEditKeyDates      Boolean @default(false)
+  canEditTodos         Boolean @default(false)
+  canEditQuestions     Boolean @default(false)
+  canEditTeam          Boolean @default(false)
+  canViewFiles         Boolean @default(false)
+  canUploadFiles       Boolean @default(false)
+  canViewFinancials    Boolean @default(false)
+  canEditFinancials    Boolean @default(false)
+  canEditStatus        Boolean @default(false) // status + completion %
 
   updatedAt DateTime @updatedAt
 
@@ -318,30 +323,30 @@ model ProjectAccess {
 // actual spend, so budget-vs-actual variance is computed per line rather than
 // only in aggregate.
 model FinancialLineItem {
-  id          String   @id @default(cuid())
-  projectId   String
-  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  category    String   @default("General") // e.g. Labor, Materials, Equipment, Permits
+  category    String  @default("General") // e.g. Labor, Materials, Equipment, Permits
   description String
   vendor      String?
 
   // Budget side — amount is qty * unitCost, stored so historical rows keep
   // their value even if the formula changes later.
-  qty         Float    @default(1)
-  unitCost    Float    @default(0)
-  budgetAmount Float   @default(0)
+  qty          Float @default(1)
+  unitCost     Float @default(0)
+  budgetAmount Float @default(0)
 
   // Actual side
-  actualAmount Float   @default(0)
+  actualAmount Float     @default(0)
   invoiceRef   String?
   paidDate     DateTime?
-  status       String   @default("Planned") // Planned | Committed | Invoiced | Paid
+  status       String    @default("Planned") // Planned | Committed | Invoiced | Paid
 
-  notes       String?
-  order       Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  notes     String?
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([projectId])
 }
@@ -350,21 +355,21 @@ model FinancialLineItem {
 // nothing here is auto-guessed, because wrong incentive figures on a quote are
 // worse than no figures.
 model ProjectRebate {
-  id          String   @id @default(cuid())
-  projectId   String
-  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  name        String
-  authority   String?  // Federal / State / Utility / Local
-  category    String   @default("Solar") // Solar | BESS | EV | Efficiency | Other
-  incentiveType String @default("Percentage") // Percentage | PerWatt | Fixed | PerKWh
-  value       Float    @default(0)
-  estimatedAmount Float @default(0)
-  status      String   @default("Researching") // Researching | Eligible | Applied | Awarded | Denied
-  sourceUrl   String?
-  notes       String?
-  verifiedAt  DateTime?
-  order       Int      @default(0)
+  name            String
+  authority       String? // Federal / State / Utility / Local
+  category        String    @default("Solar") // Solar | BESS | EV | Efficiency | Other
+  incentiveType   String    @default("Percentage") // Percentage | PerWatt | Fixed | PerKWh
+  value           Float     @default(0)
+  estimatedAmount Float     @default(0)
+  status          String    @default("Researching") // Researching | Eligible | Applied | Awarded | Denied
+  sourceUrl       String?
+  notes           String?
+  verifiedAt      DateTime?
+  order           Int       @default(0)
 
   @@index([projectId])
 }
@@ -373,24 +378,24 @@ model ProjectRebate {
 // row per person so read state, dismissal, and deletion are all per-person —
 // one recipient deleting a message never affects anyone else's copy.
 model Message {
-  id        String   @id @default(cuid())
-  senderId  String?
-  sender    TeamMember? @relation("MessageSender", fields: [senderId], references: [id], onDelete: SetNull)
+  id       String      @id @default(cuid())
+  senderId String?
+  sender   TeamMember? @relation("MessageSender", fields: [senderId], references: [id], onDelete: SetNull)
 
-  subject   String
-  body      String
+  subject  String
+  body     String
   // "MESSAGE" = normal team message
   // "ALERT"   = must be acknowledged; blocks with a modal on next login
-  kind      String   @default("MESSAGE")
-  priority  String   @default("Normal") // Normal | High | Urgent
+  kind     String @default("MESSAGE")
+  priority String @default("Normal") // Normal | High | Urgent
 
   // Threading — a reply points at the message it answers.
-  parentId  String?
-  parent    Message?  @relation("MessageThread", fields: [parentId], references: [id], onDelete: Cascade)
-  replies   Message[] @relation("MessageThread")
+  parentId String?
+  parent   Message?  @relation("MessageThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies  Message[] @relation("MessageThread")
 
   recipients MessageRecipient[]
-  createdAt DateTime @default(now())
+  createdAt  DateTime           @default(now())
 
   @@index([createdAt])
 }
@@ -431,7 +436,7 @@ model Activity {
   summary   String
   // Optional structured detail (before/after values, ids).
   meta      String?
-  createdAt DateTime    @default(now())
+  createdAt DateTime @default(now())
 
   @@index([projectId, createdAt])
   @@index([createdAt])
@@ -455,37 +460,39 @@ model SavedView {
 
 // Trade shows / industry events the team may attend.
 model TradeShow {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   name        String
   description String?
 
-  startDate   DateTime
-  endDate     DateTime?
+  startDate DateTime
+  endDate   DateTime?
   // Free text rather than a time field — real listings say things like
   // "Expo hall 9am–5pm daily", which no time picker captures well.
-  timeInfo    String?
+  timeInfo  String?
 
-  venue       String?
-  city        String?
-  state       String?
-  country     String?  @default("USA")
+  venue   String?
+  city    String?
+  state   String?
+  country String? @default("USA")
 
-  websiteUrl      String?
-  registrationUrl String?
+  websiteUrl           String?
+  registrationUrl      String?
   // Booth registration usually closes long before the show itself — this is
   // the date that actually causes problems when missed.
   registrationDeadline DateTime?
 
-  priority    String   @default("Medium") // High | Medium | Low
-  status      String   @default("Considering") // Considering | Registered | Attending | Attended | Skipped
-  boothInfo   String?
-  estimatedCost Float  @default(0)
-  notes       String?
+  priority      String  @default("Medium") // High | Medium | Low
+  status        String  @default("Considering") // Considering | Registered | Attending | Attended | Skipped
+  boothInfo     String?
+  estimatedCost Float   @default(0)
+  notes         String?
 
-  attendees   TradeShowAttendee[]
-  purchases   PurchaseRequest[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  attendees  TradeShowAttendee[]
+  purchases  PurchaseRequest[]
+  exhibitors TradeShowExhibitor[]
+  imports    ExhibitorImport[]
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
 
   @@index([startDate])
 }
@@ -497,9 +504,9 @@ model TradeShowAttendee {
   memberId    String
   member      TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
-  status      String     @default("Tentative") // Confirmed | Tentative | Declined
-  role        String?    // e.g. "Booth lead", "Technical support"
-  notes       String?
+  status String  @default("Tentative") // Confirmed | Tentative | Declined
+  role   String? // e.g. "Booth lead", "Technical support"
+  notes  String?
 
   @@unique([tradeShowId, memberId])
 }
@@ -558,8 +565,8 @@ model Role {
   defaultCanEditStatus        Boolean @default(true)
 
   members   TeamMember[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
 }
 
 // Durable, unguessable links for externally sharing a generated PDF (the
@@ -569,14 +576,14 @@ model Role {
 // property as an unlisted public URL, but mediated by our server so we can
 // also expire it.
 model SharedLink {
-  id         String    @id @default(cuid())
-  token      String    @unique
-  pathname   String
-  filename   String
-  contentType String   @default("application/pdf")
-  projectId  String?
-  createdAt  DateTime  @default(now())
-  expiresAt  DateTime?
+  id          String    @id @default(cuid())
+  token       String    @unique
+  pathname    String
+  filename    String
+  contentType String    @default("application/pdf")
+  projectId   String?
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime?
 
   @@index([token])
 }
@@ -596,59 +603,59 @@ model Category {
 // A meeting moves through phases: scheduled -> agenda -> held -> notes.
 // The UI changes shape per phase rather than showing one flat form.
 model Meeting {
-  id          String   @id @default(cuid())
-  title       String
-  description String?
-  startsAt    DateTime
-  durationMins Int     @default(60)
-  location    String?
-  joinUrl     String?
+  id           String   @id @default(cuid())
+  title        String
+  description  String?
+  startsAt     DateTime
+  durationMins Int      @default(60)
+  location     String?
+  joinUrl      String?
 
-  status      String   @default("Scheduled") // Scheduled | Held | Cancelled
+  status  String    @default("Scheduled") // Scheduled | Held | Cancelled
   // Written after the meeting. Kept separate from description so the agenda
   // isn't overwritten by the minutes.
-  notes       String?
-  notesBy     String?
-  notesAt     DateTime?
+  notes   String?
+  notesBy String?
+  notesAt DateTime?
 
   organizerId String?
   organizer   TeamMember? @relation("MeetingOrganizer", fields: [organizerId], references: [id], onDelete: SetNull)
 
-  projectId   String?
-  project     Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
   agendaItems MeetingAgendaItem[]
   imports     MeetingImport[]
-  tasks       Todo[]           @relation("MeetingTasks")
+  tasks       Todo[]              @relation("MeetingTasks")
   attendees   MeetingAttendee[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
 
   @@index([startsAt])
 }
 
 model MeetingAgendaItem {
-  id        String  @id @default(cuid())
+  id        String      @id @default(cuid())
   meetingId String
-  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  meeting   Meeting     @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   text      String
-  order     Int     @default(0)
+  order     Int         @default(0)
   // Ticked during the meeting so everyone can see what's been covered.
-  covered   Boolean @default(false)
+  covered   Boolean     @default(false)
   ownerId   String?
   owner     TeamMember? @relation("AgendaOwner", fields: [ownerId], references: [id], onDelete: SetNull)
 }
 
 model MeetingAttendee {
-  id        String  @id @default(cuid())
-  meetingId String
-  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  memberId  String
-  member    TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  status    String  @default("Invited") // Invited | Accepted | Declined | Attended
+  id           String     @id @default(cuid())
+  meetingId    String
+  meeting      Meeting    @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  memberId     String
+  member       TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  status       String     @default("Invited") // Invited | Accepted | Declined | Attended
   // Per-meeting override: lets an admin give one person note-taking rights
   // for a single meeting without granting it globally via their role.
-  canEditNotes Boolean @default(false)
+  canEditNotes Boolean    @default(false)
 
   @@unique([meetingId, memberId])
 }
@@ -656,20 +663,20 @@ model MeetingAttendee {
 // Shared library: marketing flyers, spec sheets, knowledge base, templates.
 // Holds either an uploaded file (private blob) or an external link.
 model ResourceCategory {
-  id        String     @id @default(cuid())
-  name      String     @unique
+  id          String     @id @default(cuid())
+  name        String     @unique
   description String?
-  icon      String     @default("folder")
-  color     String     @default("#4CAB3E")
-  order     Int        @default(0)
-  items     Resource[]
-  createdAt DateTime   @default(now())
+  icon        String     @default("folder")
+  color       String     @default("#4CAB3E")
+  order       Int        @default(0)
+  items       Resource[]
+  createdAt   DateTime   @default(now())
 }
 
 model Resource {
-  id          String  @id @default(cuid())
-  categoryId  String
-  category    ResourceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  id         String           @id @default(cuid())
+  categoryId String
+  category   ResourceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
   title       String
   description String?
@@ -682,11 +689,11 @@ model Resource {
   contentType String?
   size        Int     @default(0)
 
-  tags        String?
+  tags         String?
   uploadedById String?
-  uploadedBy  TeamMember? @relation("ResourceUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  uploadedBy   TeamMember? @relation("ResourceUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 
   @@index([categoryId])
 }
@@ -695,18 +702,18 @@ model Resource {
 // texting in from a number that is NOT a team member and NOT on this list is
 // rejected — an open inbox would mean spam and cost with no upside.
 model SmsContact {
-  id          String   @id @default(cuid())
-  phone       String   @unique
+  id          String       @id @default(cuid())
+  phone       String       @unique
   name        String
   company     String?
   notes       String?
-  active      Boolean  @default(true)
-  optedOut    Boolean  @default(false)
+  active      Boolean      @default(true)
+  optedOut    Boolean      @default(false)
   // Optional scoping: if set, this contact may only file messages against
   // these projects. Empty means any project.
   projectIds  String?
   createdById String?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime     @default(now())
   messages    SmsMessage[] @relation("SmsContact")
 
   @@index([phone])
@@ -715,28 +722,28 @@ model SmsContact {
 // Every inbound and outbound message. Idempotent on twilioSid because Twilio
 // retries a webhook it thinks failed, which would otherwise duplicate rows.
 model SmsMessage {
-  id          String   @id @default(cuid())
-  twilioSid   String?  @unique
-  direction   String   // IN | OUT
-  fromNumber  String
-  toNumber    String
-  body        String
-  status      String   @default("received") // received | queued | sent | delivered | failed
-  errorText   String?
+  id         String  @id @default(cuid())
+  twilioSid  String? @unique
+  direction  String // IN | OUT
+  fromNumber String
+  toNumber   String
+  body       String
+  status     String  @default("received") // received | queued | sent | delivered | failed
+  errorText  String?
 
-  projectId   String?
-  project     Project?    @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  memberId    String?
-  member      TeamMember? @relation("SmsMember", fields: [memberId], references: [id], onDelete: SetNull)
-  contactId   String?
-  contact     SmsContact? @relation("SmsContact", fields: [contactId], references: [id], onDelete: SetNull)
+  projectId String?
+  project   Project?    @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  memberId  String?
+  member    TeamMember? @relation("SmsMember", fields: [memberId], references: [id], onDelete: SetNull)
+  contactId String?
+  contact   SmsContact? @relation("SmsContact", fields: [contactId], references: [id], onDelete: SetNull)
 
   // How the project was determined — useful when a message lands somewhere
   // unexpected and you need to know why.
-  routedBy    String?  // keyword | session | reply | manual | outbound
-  mediaCount  Int      @default(0)
-  handled     Boolean  @default(true)
-  createdAt   DateTime @default(now())
+  routedBy   String? // keyword | session | reply | manual | outbound
+  mediaCount Int      @default(0)
+  handled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
 
   @@index([projectId])
   @@index([createdAt])
@@ -745,32 +752,32 @@ model SmsMessage {
 // Remembers which project a number is currently talking about, so follow-up
 // texts don't each need a prefix.
 model SmsSession {
-  id         String   @id @default(cuid())
-  phone      String   @unique
-  projectId  String?
+  id             String   @id @default(cuid())
+  phone          String   @unique
+  projectId      String?
   // Set when we've asked "which project?" so a bare digit reply can be
   // interpreted, along with the message we're still holding.
   pendingChoices String?
   pendingBody    String?
-  lastTaskId String?
-  expiresAt  DateTime
-  updatedAt  DateTime @updatedAt
+  lastTaskId     String?
+  expiresAt      DateTime
+  updatedAt      DateTime @updatedAt
 }
 
 // A conversation on a task. This is what lets a project lead push back on a
 // completion, and the assignee respond, without losing the history.
 model TodoComment {
-  id        String   @id @default(cuid())
-  todoId    String
-  todo      Todo     @relation(fields: [todoId], references: [id], onDelete: Cascade)
-  authorId  String?
-  author    TeamMember? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  id         String      @id @default(cuid())
+  todoId     String
+  todo       Todo        @relation(fields: [todoId], references: [id], onDelete: Cascade)
+  authorId   String?
+  author     TeamMember? @relation(fields: [authorId], references: [id], onDelete: SetNull)
   authorName String
-  body      String
+  body       String
   // Marks the system-generated entries ("marked done", "confirmed") so the
   // thread reads as a timeline rather than just chat.
-  kind      String   @default("COMMENT") // COMMENT | COMPLETED | CONFIRMED | REOPENED
-  createdAt DateTime @default(now())
+  kind       String      @default("COMMENT") // COMMENT | COMPLETED | CONFIRMED | REOPENED
+  createdAt  DateTime    @default(now())
 
   @@index([todoId])
 }
@@ -779,16 +786,16 @@ model TodoComment {
 // Deliberately kept as a draft until a human accepts the items — auto-creating
 // tasks from a misread line is worse than not extracting at all.
 model MeetingImport {
-  id           String   @id @default(cuid())
-  meetingId    String?
-  meeting      Meeting? @relation(fields: [meetingId], references: [id], onDelete: SetNull)
-  projectId    String?
-  project      Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  id        String   @id @default(cuid())
+  meetingId String?
+  meeting   Meeting? @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
   title        String
   rawText      String
-  source       String   @default("PASTE") // PASTE | TRANSCRIPT
-  status       String   @default("DRAFT") // DRAFT | APPLIED
+  source       String      @default("PASTE") // PASTE | TRANSCRIPT
+  status       String      @default("DRAFT") // DRAFT | APPLIED
   importedById String?
   importedBy   TeamMember? @relation("ImportedBy", fields: [importedById], references: [id], onDelete: SetNull)
   appliedAt    DateTime?
@@ -796,94 +803,94 @@ model MeetingImport {
   // is a perfectly valid state — never an error.
   aiSummary    String?
   aiDecisions  String?
-  aiUsed       Boolean  @default(false)
+  aiUsed       Boolean     @default(false)
   aiError      String?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime    @default(now())
 
-  items        MeetingImportItem[]
+  items MeetingImportItem[]
 }
 
 model MeetingImportItem {
-  id            String   @id @default(cuid())
-  importId      String
-  import        MeetingImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  id       String        @id @default(cuid())
+  importId String
+  import   MeetingImport @relation(fields: [importId], references: [id], onDelete: Cascade)
 
-  text          String
+  text                 String
   // Everything below is a SUGGESTION shown for review, never applied blind.
   suggestedAssigneeIds String?
   suggestedDueDate     DateTime?
-  matchedNames  String?
+  matchedNames         String?
   // Why we thought this was an action item — shown in review so a wrong
   // extraction is obvious rather than mysterious.
-  reason        String?
-  confidence    String   @default("medium") // high | medium | low
-  sourceLine    Int      @default(0)
+  reason               String?
+  confidence           String    @default("medium") // high | medium | low
+  sourceLine           Int       @default(0)
 
-  accepted      Boolean  @default(true)
+  accepted      Boolean @default(true)
   // "rules" or "ai" — shown in review so a reviewer knows what found it.
-  origin        String   @default("rules")
+  origin        String  @default("rules")
   createdTodoId String?
-  order         Int      @default(0)
+  order         Int     @default(0)
 }
 
 // A purchase request moving through approval. Money leaving the business is
 // the highest-stakes thing this app touches, so every transition is recorded
 // with who did it and when — the history is the point, not a side effect.
 model PurchaseRequest {
-  id          String   @id @default(cuid())
+  id     String @id @default(cuid())
   // Human-readable reference (PR-0001) for POs, invoices and conversations.
   // Assigned in the create action rather than autoincrement(), which Postgres
   // supports on a non-id field but SQLite doesn't — keeping them the same
   // means the behaviour tested locally is the behaviour that ships.
-  number      Int      @unique
+  number Int    @unique
 
   title       String
   description String?
-  category    String   // MATERIAL | TRADE_SHOW | MARKETING | SOFTWARE | TRAVEL | SUBCONTRACTOR | OFFICE | OTHER
+  category    String // MATERIAL | TRADE_SHOW | MARKETING | SOFTWARE | TRAVEL | SUBCONTRACTOR | OFFICE | OTHER
 
   // Material and subcontractor spend must be attributable to a project;
   // enforced in the action, not just the UI.
   projectId   String?
-  project     Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  project     Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
   tradeShowId String?
   tradeShow   TradeShow? @relation(fields: [tradeShowId], references: [id], onDelete: SetNull)
 
   vendor        String?
   vendorContact String?
-  quantity      Float   @default(1)
-  unitCost      Float   @default(0)
+  quantity      Float     @default(1)
+  unitCost      Float     @default(0)
   // Stored rather than derived so a historical record can't shift if someone
   // edits quantity later.
-  amount        Float   @default(0)
+  amount        Float     @default(0)
   neededBy      DateTime?
-  urgency       String  @default("Normal") // Normal | Urgent
+  urgency       String    @default("Normal") // Normal | Urgent
 
-  status      String   @default("DRAFT")
+  status String @default("DRAFT")
   // DRAFT | SUBMITTED | APPROVED | REJECTED | ORDERED | RECEIVED | INVOICED | PAID | CANCELLED
 
   requestedById String?
   requestedBy   TeamMember? @relation("PurchaseRequester", fields: [requestedById], references: [id], onDelete: SetNull)
   submittedAt   DateTime?
 
-  approvedById  String?
-  approvedBy    TeamMember? @relation("PurchaseApprover", fields: [approvedById], references: [id], onDelete: SetNull)
-  approvedAt    DateTime?
+  approvedById       String?
+  approvedBy         TeamMember? @relation("PurchaseApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt         DateTime?
   // Second sign-off for high-value requests.
   secondApprovedById String?
   secondApprovedBy   TeamMember? @relation("PurchaseSecondApprover", fields: [secondApprovedById], references: [id], onDelete: SetNull)
   secondApprovedAt   DateTime?
-  rejectedAt    DateTime?
+  rejectedAt         DateTime?
 
-  orderedAt   DateTime?
-  receivedAt  DateTime?
-  invoicedAt  DateTime?
-  paidAt      DateTime?
-  poNumber    String?
-  invoiceRef  String?
+  orderedAt  DateTime?
+  receivedAt DateTime?
+  invoicedAt DateTime?
+  paidAt     DateTime?
+  poNumber   String?
+  invoiceRef String?
 
   // Set when approval writes a committed line item into the project ledger,
   // so the two stay linked and we never double-post.
-  lineItemId  String?  @unique
+  lineItemId String? @unique
 
   // Snapshot of the budget position at approval time. Kept because the
   // budget will change later, and "was this reasonable when approved?" is the
@@ -891,43 +898,43 @@ model PurchaseRequest {
   budgetAtApproval    Float?
   committedAtApproval Float?
 
-  comments    PurchaseComment[]
-  files       PurchaseFile[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  comments  PurchaseComment[]
+  files     PurchaseFile[]
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
 
   @@index([status])
   @@index([projectId])
 }
 
 model PurchaseComment {
-  id         String   @id @default(cuid())
+  id         String          @id @default(cuid())
   purchaseId String
   purchase   PurchaseRequest @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
   authorId   String?
-  author     TeamMember? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  author     TeamMember?     @relation(fields: [authorId], references: [id], onDelete: SetNull)
   authorName String
   body       String
   // SUBMITTED / APPROVED / REJECTED etc. render as timeline events rather
   // than chat, so the thread reads as an audit trail.
-  kind       String   @default("COMMENT")
-  createdAt  DateTime @default(now())
+  kind       String          @default("COMMENT")
+  createdAt  DateTime        @default(now())
 
   @@index([purchaseId])
 }
 
 // Quotes, POs, receipts and invoices. Private blob, same as project files.
 model PurchaseFile {
-  id         String   @id @default(cuid())
-  purchaseId String
-  purchase   PurchaseRequest @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
-  pathname   String
-  filename   String
-  contentType String?
-  size       Int      @default(0)
-  kind       String   @default("OTHER") // QUOTE | PO | RECEIPT | INVOICE | OTHER
+  id           String          @id @default(cuid())
+  purchaseId   String
+  purchase     PurchaseRequest @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  pathname     String
+  filename     String
+  contentType  String?
+  size         Int             @default(0)
+  kind         String          @default("OTHER") // QUOTE | PO | RECEIPT | INVOICE | OTHER
   uploadedById String?
-  createdAt  DateTime @default(now())
+  createdAt    DateTime        @default(now())
 }
 
 // Append-only record of who changed what. Deliberately has no update or
@@ -935,30 +942,30 @@ model PurchaseFile {
 // evidence. Actor name and entity label are denormalised so the record still
 // reads correctly after the person or the record itself is gone.
 model AuditLog {
-  id          String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  entityType  String   // Project | FinancialLineItem | PurchaseRequest | TeamMember | Role | Category | Settings
+  entityType  String // Project | FinancialLineItem | PurchaseRequest | TeamMember | Role | Category | Settings
   entityId    String
-  entityLabel String   // e.g. the project title at the time of the change
+  entityLabel String // e.g. the project title at the time of the change
 
-  action      String   // CREATE | UPDATE | DELETE | APPROVE | REJECT | RESTORE | RECONCILE
+  action String // CREATE | UPDATE | DELETE | APPROVE | REJECT | RESTORE | RECONCILE
 
   // Field-level detail for changes worth reconstructing later. Stored as JSON
   // text: [{ field, from, to }]
-  changes     String?
+  changes String?
   // Human sentence for the timeline, e.g. "Budget $353,000 -> $400,000".
-  summary     String
+  summary String
 
   // Flags money-affecting changes so a financial review can filter to just
   // those without reading everything.
-  isFinancial Boolean  @default(false)
+  isFinancial Boolean @default(false)
 
-  actorId     String?
-  actorName   String
-  actorEmail  String?
-  ipAddress   String?
+  actorId    String?
+  actorName  String
+  actorEmail String?
+  ipAddress  String?
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([entityType, entityId])
   @@index([createdAt])
@@ -968,15 +975,15 @@ model AuditLog {
 // Result of a committed-vs-line-items reconciliation run. Kept as a record so
 // drift that appeared and was repaired is still visible afterwards.
 model ReconciliationRun {
-  id            String   @id @default(cuid())
-  runBy         String?
-  runByName     String
-  projectsChecked Int    @default(0)
-  driftFound    Int      @default(0)
-  driftRepaired Int      @default(0)
+  id              String   @id @default(cuid())
+  runBy           String?
+  runByName       String
+  projectsChecked Int      @default(0)
+  driftFound      Int      @default(0)
+  driftRepaired   Int      @default(0)
   // JSON detail of each discrepancy: project, stored, computed, difference.
-  details       String?
-  createdAt     DateTime @default(now())
+  details         String?
+  createdAt       DateTime @default(now())
 }
 
 // Failed sign-in attempts, used for rate limiting. Stored in the database
@@ -997,24 +1004,24 @@ model LoginAttempt {
 // Saved conversations with the assistant, so a question asked yesterday can
 // be picked up today.
 model ChatThread {
-  id        String   @id @default(cuid())
+  id        String        @id @default(cuid())
   memberId  String
-  member    TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  title     String   @default("New conversation")
+  member    TeamMember    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  title     String        @default("New conversation")
   messages  ChatMessage[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
 
   @@index([memberId])
 }
 
 model ChatMessage {
-  id        String   @id @default(cuid())
+  id        String     @id @default(cuid())
   threadId  String
   thread    ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  role      String   // user | assistant
+  role      String // user | assistant
   content   String
-  createdAt DateTime @default(now())
+  createdAt DateTime   @default(now())
 
   @@index([threadId])
 }
@@ -1031,4 +1038,231 @@ model MeetingLog {
   date      DateTime @default(now())
   notes     String?
   createdAt DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Trade show exhibitors / vendors
+//
+// A Vendor is a COMPANY and is global — deliberately not scoped to one show.
+// The same firms exhibit year after year, and the value of this module is that
+// "we met them at Datacloud USA and they quoted 22 week lead times" is still
+// attached when they turn up at the next event. Show-specific facts (booth,
+// whether we want a meeting this time, what it's about) live on
+// TradeShowExhibitor instead.
+//
+// The cost of that split is deduplication on import: the same company arrives
+// as "SUNGROW" one year and "Sungrow Power Supply Co., Ltd." the next. That's
+// handled by matchKey below plus a review step that SUGGESTS a merge and never
+// performs one silently.
+// ---------------------------------------------------------------------------
+
+model Vendor {
+  id          String  @id @default(cuid())
+  name        String
+  // Normalised name used for duplicate detection: lowercased, punctuation and
+  // legal suffixes (Inc, LLC, Ltd, Co, GmbH...) stripped. NOT unique — two
+  // genuinely different companies can normalise the same way, and blocking
+  // that at the database level would make an import fail instead of asking.
+  matchKey    String
+  description String?
+  websiteUrl  String?
+  hqCity      String?
+  hqCountry   String?
+  // Relationship notes that accumulate across every show.
+  notes       String?
+
+  createdById String?
+  createdBy   TeamMember? @relation("VendorCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  tags        VendorTagLink[]
+  contacts    VendorContact[]
+  appearances TradeShowExhibitor[]
+  importItems ExhibitorImportItem[] @relation("ImportItemMatchedVendor")
+
+  @@index([matchKey])
+  @@index([name])
+}
+
+// Admin-managed tag list ("Inverters", "BESS", "Cooling"...). Kept as a table
+// rather than a string column so renaming a tag renames it everywhere and
+// filtering is an index lookup instead of a LIKE over free text.
+model VendorTag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  // Lowercased name, used to catch case-only duplicates on create/rename.
+  slug      String   @unique
+  color     String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  vendors VendorTagLink[]
+}
+
+model VendorTagLink {
+  vendorId String
+  tagId    String
+  vendor   Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  tag      VendorTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([vendorId, tagId])
+  @@index([tagId])
+}
+
+model VendorContact {
+  id        String   @id @default(cuid())
+  vendorId  String
+  vendor    Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  name      String
+  title     String?
+  email     String?
+  phone     String?
+  notes     String?
+  createdAt DateTime @default(now())
+
+  @@index([vendorId])
+}
+
+// One company at one show. Everything here is specific to that appearance.
+model TradeShowExhibitor {
+  id          String    @id @default(cuid())
+  tradeShowId String
+  tradeShow   TradeShow @relation(fields: [tradeShowId], references: [id], onDelete: Cascade)
+  vendorId    String
+  vendor      Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  booth       String?
+  hall        String?
+  // Exhibitor | Sponsor | Both — a company is often both, and the sponsor
+  // list is usually published before the exhibitor list.
+  listing     String  @default("Exhibitor")
+  sponsorTier String?
+
+  meetingWanted Boolean @default(false)
+  // To arrange | Requested | Scheduled | Met | No longer needed
+  meetingStatus String  @default("To arrange")
+  priority      String  @default("Medium") // High | Medium | Low
+
+  ownerId String?
+  owner   TeamMember? @relation("ExhibitorOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  // What we want out of them at THIS show.
+  notes   String?
+  // What actually happened, filled in after.
+  outcome String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects    TradeShowExhibitorProject[]
+  noteEntries ExhibitorNote[]
+
+  // One row per company per show. Import relies on this to update rather than
+  // duplicate when the same list is imported twice.
+  @@unique([tradeShowId, vendorId])
+  @@index([tradeShowId, meetingWanted])
+  @@index([ownerId])
+}
+
+// Which project(s) a meeting would be about. Many-to-many because a battery
+// supplier can be relevant to three sites at once.
+model TradeShowExhibitorProject {
+  exhibitorId String
+  projectId   String
+  exhibitor   TradeShowExhibitor @relation(fields: [exhibitorId], references: [id], onDelete: Cascade)
+  project     Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([exhibitorId, projectId])
+  @@index([projectId])
+}
+
+// Timestamped notes captured on the floor. Append-only rather than one editable
+// notes field, because two people at the same booth on different days both have
+// something worth keeping and last-write-wins would silently destroy one.
+model ExhibitorNote {
+  id          String             @id @default(cuid())
+  exhibitorId String
+  exhibitor   TradeShowExhibitor @relation(fields: [exhibitorId], references: [id], onDelete: Cascade)
+  authorId    String?
+  author      TeamMember?        @relation("ExhibitorNoteAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  authorName  String
+  body        String
+  createdAt   DateTime           @default(now())
+
+  @@index([exhibitorId])
+}
+
+// ---- Import staging -------------------------------------------------------
+// Mirrors MeetingImport/MeetingImportItem. Parsed rows land here first and a
+// human confirms them; nothing reaches Vendor/TradeShowExhibitor until the
+// import is applied.
+
+model ExhibitorImport {
+  id          String    @id @default(cuid())
+  tradeShowId String
+  tradeShow   TradeShow @relation(fields: [tradeShowId], references: [id], onDelete: Cascade)
+
+  // FILE_CSV | FILE_XLSX | PASTE | PDF | MANUAL
+  source    String  @default("FILE_CSV")
+  fileName  String?
+  // Kept for PASTE/PDF so a bad parse can be re-run without re-uploading.
+  rawText   String?
+  // JSON: which column in their file maps to which of our fields.
+  columnMap String?
+  status    String  @default("DRAFT") // DRAFT | APPLIED | DISCARDED
+
+  importedById String?
+  importedBy   TeamMember? @relation("ExhibitorImportedBy", fields: [importedById], references: [id], onDelete: SetNull)
+  appliedAt    DateTime?
+
+  // AI enrichment is optional. aiUsed=false with no error is a normal,
+  // successful rules-only import — never treat it as a failure.
+  aiUsed  Boolean @default(false)
+  aiError String?
+
+  createdAt DateTime              @default(now())
+  items     ExhibitorImportItem[]
+
+  @@index([tradeShowId])
+}
+
+model ExhibitorImportItem {
+  id       String          @id @default(cuid())
+  importId String
+  import   ExhibitorImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  companyName  String
+  booth        String?
+  hall         String?
+  websiteUrl   String?
+  description  String?
+  // Comma-separated suggested tag names, resolved to VendorTag on apply.
+  tagNames     String?
+  contactName  String?
+  contactEmail String?
+  hqCountry    String?
+  listing      String  @default("Exhibitor")
+  sponsorTier  String?
+
+  // Duplicate suggestion — shown for review, never auto-applied.
+  matchedVendorId String?
+  matchedVendor   Vendor? @relation("ImportItemMatchedVendor", fields: [matchedVendorId], references: [id], onDelete: SetNull)
+  // Why we think it's a match, in words, so a wrong suggestion is obvious.
+  matchReason     String?
+  // exact | normalised | fuzzy | none
+  matchKind       String  @default("none")
+
+  confidence String  @default("high") // high | medium | low
+  origin     String  @default("file") // file | rules | ai
+  // Why a row was flagged low confidence — shown in review.
+  reason     String?
+  sourceLine Int     @default(0)
+
+  accepted        Boolean @default(true)
+  // What we did with it, filled in on apply.
+  createdVendorId String?
+  sortOrder       Int     @default(0)
+
+  @@index([importId])
 }
