@@ -2978,6 +2978,18 @@ export async function submitPurchase(id: string) {
     data: { purchaseId: id, authorId: me.id, authorName: me.name, kind: "SUBMITTED", body: "Submitted for approval." },
   });
 
+  // Log against the project so a pending request is visible there, not only
+  // once it's approved — waiting spend is exactly what a lead needs to see.
+  if (pr.projectId) {
+    await logActivity({
+      projectId: pr.projectId,
+      actor: me,
+      action: "financials.updated",
+      summary: `Requested ${pr.title} — $${pr.amount.toLocaleString("en-US")} (PR-${String(pr.number).padStart(4, "0")}), awaiting approval`,
+      meta: { purchaseId: id },
+    });
+  }
+
   // Tell everyone who could actually approve it, rather than everyone.
   const approvers = await prisma.teamMember.findMany({
     where: { OR: [{ role: "ADMIN" }, { customRole: { canApprovePurchases: true } }] },
@@ -3127,6 +3139,16 @@ export async function rejectPurchase(id: string, note: string) {
     data: { purchaseId: id, authorId: me.id, authorName: me.name, kind: "REJECTED", body: note.trim() },
   });
 
+  if (pr.projectId) {
+    await logActivity({
+      projectId: pr.projectId,
+      actor: me,
+      action: "financials.updated",
+      summary: `Returned PR-${String(pr.number).padStart(4, "0")} "${pr.title}" — ${note.trim().slice(0, 60)}`,
+      meta: { purchaseId: id },
+    });
+  }
+
   if (pr.requestedById && pr.requestedById !== me.id) {
     await prisma.notification.create({
       data: {
@@ -3179,6 +3201,16 @@ export async function advancePurchase(
   await prisma.purchaseComment.create({
     data: { purchaseId: id, authorId: me.id, authorName: me.name, kind: to, body: `Marked ${to.toLowerCase()}.` },
   });
+
+  if (pr.projectId) {
+    await logActivity({
+      projectId: pr.projectId,
+      actor: me,
+      action: "financials.updated",
+      summary: `PR-${String(pr.number).padStart(4, "0")} "${pr.title}" marked ${to.toLowerCase()}`,
+      meta: { purchaseId: id },
+    });
+  }
 
   // Once invoiced, the committed figure becomes real spend.
   if (to === "INVOICED" && pr.lineItemId) {

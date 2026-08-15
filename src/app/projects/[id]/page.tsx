@@ -16,6 +16,7 @@ import ReportSubscriptions from "@/components/ReportSubscriptions";
 import ActivityFeed from "@/components/ActivityFeed";
 import SiteDetailsForm from "@/components/SiteDetailsForm";
 import RebatePanel from "@/components/RebatePanel";
+import ProjectPurchases from "@/components/ProjectPurchases";
 import FinancialsDetail from "@/components/FinancialsDetail";
 import FinancialsLocked from "@/components/FinancialsLocked";
 import { toggleTodo, toggleQuestion } from "@/lib/actions";
@@ -302,6 +303,14 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                 {perms.canUploadFiles && <FileUploader projectId={project.id} />}
               </div>
               <ProjectFiles files={project.files} canDelete={perms.canUploadFiles} />
+            </div>
+          )}
+
+          {/* Purchases — gated behind financial access, since amounts and
+              committed spend are financial information. */}
+          {perms.canViewFinancials && (
+            <div className="p-5 border-b border-brand-line">
+              <ProjectPurchases projectId={project.id} />
             </div>
           )}
 
