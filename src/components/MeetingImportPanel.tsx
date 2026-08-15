@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { createMeetingImport, updateImportItem, applyMeetingImport, deleteMeetingImport } from "@/lib/actions";
+import { createMeetingImport, updateImportItem, applyMeetingImport, deleteMeetingImport, importFromExistingMeeting } from "@/lib/actions";
 
 export type ImportItem = {
   id: string;
@@ -37,16 +37,19 @@ const CONF: Record<string, { bg: string; fg: string; label: string }> = {
 };
 
 export default function MeetingImportPanel({
-  imports, teamMembers, projects,
+  imports, teamMembers, projects, pastMeetings = [],
 }: {
   imports: ImportRecord[];
   teamMembers: { id: string; name: string }[];
   projects: { id: string; title: string }[];
+  /** Held meetings that already have notes/agenda worth pulling from. */
+  pastMeetings?: { id: string; title: string; startsAt: string; hasNotes: boolean; alreadyImported: boolean }[];
 }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [raw, setRaw] = useState("");
   const [projectId, setProjectId] = useState("");
+  const [fromMeeting, setFromMeeting] = useState("");
   const [reviewing, setReviewing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -77,6 +80,42 @@ export default function MeetingImportPanel({
 
       {open && (
         <div className="card p-5 bg-white space-y-3">
+          {pastMeetings.length > 0 && (
+            <div className="rounded bg-brand-greenTint p-3">
+              <p className="kicker mb-1.5">Pull from a meeting you&rsquo;ve already written up</p>
+              <div className="flex gap-2 items-center flex-wrap">
+                <select
+                  className="input !py-1 text-xs flex-1 min-w-[200px]"
+                  value={fromMeeting}
+                  onChange={(e) => setFromMeeting(e.target.value)}
+                >
+                  <option value="">Choose a past meeting…</option>
+                  {pastMeetings.map((m) => (
+                    <option key={m.id} value={m.id} disabled={m.alreadyImported}>
+                      {m.title} — {new Date(m.startsAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      {m.alreadyImported ? " (already imported)" : m.hasNotes ? "" : " (agenda only)"}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() =>
+                    act(async () => {
+                      const res = await importFromExistingMeeting(fromMeeting, projectId || null);
+                      setReviewing(res.id);
+                    }, () => { setFromMeeting(""); setOpen(false); })
+                  }
+                  disabled={isPending || !fromMeeting}
+                  className="btn-primary !text-[11px] !px-3 !py-1.5"
+                >
+                  {isPending ? "Reading…" : "Pull notes"}
+                </button>
+              </div>
+              <p className="text-[10px] text-brand-inkFaint mt-1.5">
+                Uses that meeting&rsquo;s notes, description and agenda. Or paste something new below.
+              </p>
+            </div>
+          )}
+
           <div className="grid sm:grid-cols-2 gap-3">
             <div>
               <label className="label">What meeting was this?</label>

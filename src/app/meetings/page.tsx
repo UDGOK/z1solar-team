@@ -93,6 +93,20 @@ export default async function MeetingsPage() {
     })),
   }));
 
+  // Meetings that are over and have something written down worth extracting.
+  const now = Date.now();
+  const importedIds = new Set(imports.map((i) => i.meetingId).filter(Boolean));
+  const pastMeetings = meetings
+    .filter((m) => new Date(m.startsAt).getTime() + m.durationMins * 60000 < now)
+    .filter((m) => !!(m.notes?.trim() || m.description?.trim() || m.agendaItems.length))
+    .map((m) => ({
+      id: m.id,
+      title: m.title,
+      startsAt: m.startsAt.toISOString(),
+      hasNotes: !!m.notes?.trim(),
+      alreadyImported: importedIds.has(m.id),
+    }));
+
   return (
     <AppShell active="/meetings">
       <main className={PAGE_CONTAINER}>
@@ -106,6 +120,7 @@ export default async function MeetingsPage() {
             imports={importRecords}
             teamMembers={teamMembers}
             projects={projects}
+            pastMeetings={pastMeetings}
           />
         </div>
 

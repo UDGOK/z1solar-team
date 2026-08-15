@@ -2810,3 +2810,54 @@ export async function confirmTodo(todoId: string, approve: boolean, note?: strin
   revalidatePath(`/projects/${todo.projectId}`);
   return { ok: true };
 }
+
+/**
+ * Build an import straight from a meeting that already has notes, instead of
+ * re-pasting them. Pulls the notes, description and agenda together so a
+ * commitment captured in the agenda isn't missed.
+ */
+export async function importFromExistingMeeting(meetingId: string, projectId?: string | null) {
+  const me = await requireAuth();
+
+  const meeting = await prisma.meeting.findUnique({
+    where: { id: meetingId },
+    include: { agendaItems: { orderBy: { order: "asc" } }, project: { select: { id: true } } },
+  });
+  if (!meeting) throw new Error("Meeting not found.");
+
+  const target = projectId || meeting.projectId || null;
+  if (target) {
+    const perms = await getProjectPermissions(me, target);
+    if (!perms.canEditTodos) throw new Error("You can't create tasks on that project.");
+  }
+
+  // Combine everything written about this meeting. Agenda items often contain
+  // the actual commitments ("Ryan - order HVAC"), so skipping them would miss
+  // real action items.
+  const parts: string[] = [];
+  if (meeting.description?.trim()) parts.push(meeting.description.trim());
+  if (meeting.agendaItems.length) {
+    parts.push(meeting.agendaItems.map((a) => `- ${a.text}`).join("\n"));
+  }
+  if (meeting.notes?.trim()) parts.push(meeting.notes.trim());
+
+  const rawText = parts.join("\n\n");
+  if (!rawText.trim()) {
+    throw new Error("This meeting has no notes, description or agenda to pull from yet.");
+  }
+
+  const existing = await prisma.meetingImport.findFirst({
+    where: { meetingId, status: "DRAFT" },
+  });
+  if (existing) {
+    throw new Error("There's already a draft import for this meeting — review that one first.");
+  }
+
+  return createMeetingImport({
+    title: meeting.title,
+    rawText,
+    projectId: target,
+    meetingId,
+    source: "PASTE",
+  });
+}
