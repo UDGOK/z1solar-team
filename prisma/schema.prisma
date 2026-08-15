@@ -37,6 +37,10 @@ model TeamMember {
   todosConfirmed  Todo[]        @relation("TodoConfirmedBy")
   todoComments    TodoComment[]
   meetingImports  MeetingImport[] @relation("ImportedBy")
+  purchasesRequested PurchaseRequest[] @relation("PurchaseRequester")
+  purchasesApproved  PurchaseRequest[] @relation("PurchaseApprover")
+  purchasesSecondApproved PurchaseRequest[] @relation("PurchaseSecondApprover")
+  purchaseComments   PurchaseComment[]
   meetingsOrganized Meeting[]        @relation("MeetingOrganizer")
   meetingAttendance MeetingAttendee[]
   agendaOwned       MeetingAgendaItem[] @relation("AgendaOwner")
@@ -110,6 +114,7 @@ model Project {
   meetings     Meeting[]
   smsMessages  SmsMessage[]
   meetingImports MeetingImport[]
+  purchases      PurchaseRequest[]
 
   // financials
   estBudget    Float           @default(0)
@@ -473,6 +478,7 @@ model TradeShow {
   notes       String?
 
   attendees   TradeShowAttendee[]
+  purchases   PurchaseRequest[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -527,6 +533,10 @@ model Role {
   canViewSms           Boolean @default(false)
   canSendSms           Boolean @default(false)
   canManageSmsContacts Boolean @default(false)
+  canRequestPurchases  Boolean @default(true)
+  canApprovePurchases  Boolean @default(false)
+  canViewAllPurchases  Boolean @default(false)
+  canRecordPayments    Boolean @default(false)
 
   // --- Defaults applied when this person is granted a project ---
   defaultCanEditTalkingPoints Boolean @default(true)
@@ -807,6 +817,110 @@ model MeetingImportItem {
   origin        String   @default("rules")
   createdTodoId String?
   order         Int      @default(0)
+}
+
+// A purchase request moving through approval. Money leaving the business is
+// the highest-stakes thing this app touches, so every transition is recorded
+// with who did it and when — the history is the point, not a side effect.
+model PurchaseRequest {
+  id          String   @id @default(cuid())
+  // Human-readable reference (PR-0001) for POs, invoices and conversations.
+  // Assigned in the create action rather than autoincrement(), which Postgres
+  // supports on a non-id field but SQLite doesn't — keeping them the same
+  // means the behaviour tested locally is the behaviour that ships.
+  number      Int      @unique
+
+  title       String
+  description String?
+  category    String   // MATERIAL | TRADE_SHOW | MARKETING | SOFTWARE | TRAVEL | SUBCONTRACTOR | OFFICE | OTHER
+
+  // Material and subcontractor spend must be attributable to a project;
+  // enforced in the action, not just the UI.
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  tradeShowId String?
+  tradeShow   TradeShow? @relation(fields: [tradeShowId], references: [id], onDelete: SetNull)
+
+  vendor        String?
+  vendorContact String?
+  quantity      Float   @default(1)
+  unitCost      Float   @default(0)
+  // Stored rather than derived so a historical record can't shift if someone
+  // edits quantity later.
+  amount        Float   @default(0)
+  neededBy      DateTime?
+  urgency       String  @default("Normal") // Normal | Urgent
+
+  status      String   @default("DRAFT")
+  // DRAFT | SUBMITTED | APPROVED | REJECTED | ORDERED | RECEIVED | INVOICED | PAID | CANCELLED
+
+  requestedById String?
+  requestedBy   TeamMember? @relation("PurchaseRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+  submittedAt   DateTime?
+
+  approvedById  String?
+  approvedBy    TeamMember? @relation("PurchaseApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt    DateTime?
+  // Second sign-off for high-value requests.
+  secondApprovedById String?
+  secondApprovedBy   TeamMember? @relation("PurchaseSecondApprover", fields: [secondApprovedById], references: [id], onDelete: SetNull)
+  secondApprovedAt   DateTime?
+  rejectedAt    DateTime?
+
+  orderedAt   DateTime?
+  receivedAt  DateTime?
+  invoicedAt  DateTime?
+  paidAt      DateTime?
+  poNumber    String?
+  invoiceRef  String?
+
+  // Set when approval writes a committed line item into the project ledger,
+  // so the two stay linked and we never double-post.
+  lineItemId  String?  @unique
+
+  // Snapshot of the budget position at approval time. Kept because the
+  // budget will change later, and "was this reasonable when approved?" is the
+  // question that actually gets asked.
+  budgetAtApproval    Float?
+  committedAtApproval Float?
+
+  comments    PurchaseComment[]
+  files       PurchaseFile[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([projectId])
+}
+
+model PurchaseComment {
+  id         String   @id @default(cuid())
+  purchaseId String
+  purchase   PurchaseRequest @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  authorId   String?
+  author     TeamMember? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  authorName String
+  body       String
+  // SUBMITTED / APPROVED / REJECTED etc. render as timeline events rather
+  // than chat, so the thread reads as an audit trail.
+  kind       String   @default("COMMENT")
+  createdAt  DateTime @default(now())
+
+  @@index([purchaseId])
+}
+
+// Quotes, POs, receipts and invoices. Private blob, same as project files.
+model PurchaseFile {
+  id         String   @id @default(cuid())
+  purchaseId String
+  purchase   PurchaseRequest @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  pathname   String
+  filename   String
+  contentType String?
+  size       Int      @default(0)
+  kind       String   @default("OTHER") // QUOTE | PO | RECEIPT | INVOICE | OTHER
+  uploadedById String?
+  createdAt  DateTime @default(now())
 }
 
 model Settings {

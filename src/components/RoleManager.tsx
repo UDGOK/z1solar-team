@@ -34,6 +34,10 @@ const GLOBAL_CAPS: { key: string; label: string; hint: string }[] = [
   { key: "canViewSms", label: "View SMS", hint: "See the text message inbox" },
   { key: "canSendSms", label: "Send SMS", hint: "Text people from inside the app" },
   { key: "canManageSmsContacts", label: "Manage SMS contacts", hint: "Approve which outside numbers may text in" },
+  { key: "canRequestPurchases", label: "Raise purchase requests", hint: "Ask to buy materials, passes, marketing" },
+  { key: "canApprovePurchases", label: "Approve purchases", hint: "Sign off spend up to $25,000" },
+  { key: "canViewAllPurchases", label: "View all purchases", hint: "See requests across the whole company" },
+  { key: "canRecordPayments", label: "Record payments", hint: "Mark invoices as paid" },
 ];
 
 const DEFAULTS: { key: string; label: string }[] = [

@@ -1731,6 +1731,10 @@ export type RoleInput = {
   canViewSms: boolean;
   canSendSms: boolean;
   canManageSmsContacts: boolean;
+  canRequestPurchases: boolean;
+  canApprovePurchases: boolean;
+  canViewAllPurchases: boolean;
+  canRecordPayments: boolean;
   defaultCanEditTalkingPoints: boolean;
   defaultCanEditKeyDates: boolean;
   defaultCanEditTodos: boolean;
@@ -1784,6 +1788,10 @@ export async function saveRole(id: string | null, data: RoleInput) {
     canViewSms: !!data.canViewSms,
     canSendSms: !!data.canSendSms,
     canManageSmsContacts: !!data.canManageSmsContacts,
+    canRequestPurchases: !!data.canRequestPurchases,
+    canApprovePurchases: !!data.canApprovePurchases,
+    canViewAllPurchases: !!data.canViewAllPurchases,
+    canRecordPayments: !!data.canRecordPayments,
     defaultCanEditTalkingPoints: !!data.defaultCanEditTalkingPoints,
     defaultCanEditKeyDates: !!data.defaultCanEditKeyDates,
     defaultCanEditTodos: !!data.defaultCanEditTodos,
@@ -2860,4 +2868,401 @@ export async function importFromExistingMeeting(meetingId: string, projectId?: s
     meetingId,
     source: "PASTE",
   });
+}
+
+// ---------- Purchase requests ----------
+
+async function purchaseCaps(me: { id: string; role: string }) {
+  const { getGlobalCapabilities } = await import("./permissions");
+  const caps = await getGlobalCapabilities(me as any);
+  const isAdmin = me.role === "ADMIN";
+  return {
+    isAdmin,
+    canRequest: isAdmin || caps.canRequestPurchases,
+    canApprove: isAdmin || caps.canApprovePurchases,
+    canViewAll: isAdmin || caps.canViewAllPurchases,
+    canRecordPayments: isAdmin || caps.canRecordPayments,
+  };
+}
+
+export type PurchaseInput = {
+  title: string;
+  description?: string;
+  category: string;
+  projectId?: string | null;
+  tradeShowId?: string | null;
+  vendor?: string;
+  vendorContact?: string;
+  quantity: number;
+  unitCost: number;
+  neededBy?: string | null;
+  urgency?: string;
+};
+
+export async function savePurchase(id: string | null, data: PurchaseInput) {
+  const me = await requireAuth();
+  const caps = await purchaseCaps(me);
+  if (!caps.canRequest) throw new Error("You don't have permission to raise purchase requests.");
+  if (!data.title?.trim()) throw new Error("Give the request a title.");
+
+  const { PROJECT_REQUIRED } = await import("./purchases");
+  if (PROJECT_REQUIRED.includes(data.category) && !data.projectId) {
+    throw new Error("Material and subcontractor spend has to be attributed to a project.");
+  }
+  if (data.projectId) {
+    const perms = await getProjectPermissions(me, data.projectId);
+    if (!perms.canView) throw new Error("You don't have access to that project.");
+  }
+
+  const qty = Number(data.quantity) || 1;
+  const unit = Number(data.unitCost) || 0;
+  if (unit < 0 || qty <= 0) throw new Error("Quantity and unit cost have to be positive.");
+
+  const payload = {
+    title: data.title.trim(),
+    description: data.description?.trim() || null,
+    category: data.category,
+    projectId: data.projectId || null,
+    tradeShowId: data.tradeShowId || null,
+    vendor: data.vendor?.trim() || null,
+    vendorContact: data.vendorContact?.trim() || null,
+    quantity: qty,
+    unitCost: unit,
+    amount: Math.round(qty * unit * 100) / 100,
+    neededBy: data.neededBy ? new Date(data.neededBy) : null,
+    urgency: data.urgency === "Urgent" ? "Urgent" : "Normal",
+  };
+
+  if (id) {
+    const existing = await prisma.purchaseRequest.findUnique({ where: { id } });
+    if (!existing) throw new Error("Request not found.");
+    // Once money is committed the record is an audit artefact, not a draft.
+    if (!["DRAFT", "SUBMITTED", "REJECTED"].includes(existing.status)) {
+      throw new Error(`This request is ${existing.status.toLowerCase()} and can no longer be edited.`);
+    }
+    if (existing.requestedById !== me.id && !caps.isAdmin) {
+      throw new Error("Only the person who raised this, or an admin, can edit it.");
+    }
+    await prisma.purchaseRequest.update({ where: { id }, data: payload });
+    revalidatePath("/purchases");
+    return { ok: true, id };
+  }
+
+  // Sequential reference number. Computed here rather than by the database so
+  // it behaves identically on every provider.
+  const last = await prisma.purchaseRequest.aggregate({ _max: { number: true } });
+  const created = await prisma.purchaseRequest.create({
+    data: { ...payload, number: (last._max.number ?? 0) + 1, requestedById: me.id, status: "DRAFT" },
+  });
+  revalidatePath("/purchases");
+  return { ok: true, id: created.id };
+}
+
+export async function submitPurchase(id: string) {
+  const me = await requireAuth();
+  const pr = await prisma.purchaseRequest.findUnique({ where: { id } });
+  if (!pr) throw new Error("Request not found.");
+  if (pr.requestedById !== me.id && me.role !== "ADMIN") {
+    throw new Error("Only the person who raised this can submit it.");
+  }
+  if (pr.status !== "DRAFT" && pr.status !== "REJECTED") {
+    throw new Error("This request has already been submitted.");
+  }
+  if (pr.amount <= 0) throw new Error("Add a cost before submitting.");
+
+  await prisma.purchaseRequest.update({
+    where: { id },
+    data: { status: "SUBMITTED", submittedAt: new Date(), rejectedAt: null },
+  });
+  await prisma.purchaseComment.create({
+    data: { purchaseId: id, authorId: me.id, authorName: me.name, kind: "SUBMITTED", body: "Submitted for approval." },
+  });
+
+  // Tell everyone who could actually approve it, rather than everyone.
+  const approvers = await prisma.teamMember.findMany({
+    where: { OR: [{ role: "ADMIN" }, { customRole: { canApprovePurchases: true } }] },
+    select: { id: true },
+  });
+  const targets = approvers.map((a) => a.id).filter((x) => x !== me.id);
+  if (targets.length) {
+    await prisma.notification.createMany({
+      data: targets.map((recipientId) => ({
+        recipientId,
+        type: "GENERAL",
+        title: `Purchase needs approval — $${pr.amount.toLocaleString("en-US")}`,
+        body: `${pr.title} · raised by ${me.name}`,
+        link: "/purchases",
+      })),
+    });
+  }
+
+  revalidatePath("/purchases");
+  return { ok: true };
+}
+
+/**
+ * Approve. On final approval this writes a committed line item into the
+ * project ledger, which is what keeps budgets honest — spend can no longer
+ * happen without the project knowing about it.
+ */
+export async function approvePurchase(id: string, note?: string) {
+  const me = await requireAuth();
+  const { canApprovePurchase, budgetImpact } = await import("./purchases");
+
+  const check = await canApprovePurchase(me, id);
+  if (!check.canApprove) throw new Error(check.reason || "You can't approve this request.");
+
+  const pr = await prisma.purchaseRequest.findUnique({
+    where: { id },
+    include: { project: { select: { id: true, title: true, estBudget: true, committed: true } } },
+  });
+  if (!pr) throw new Error("Request not found.");
+
+  const impact = await budgetImpact(id);
+  const isSecondSignature = pr.status === "APPROVED";
+
+  if (isSecondSignature) {
+    await prisma.purchaseRequest.update({
+      where: { id },
+      data: { secondApprovedById: me.id, secondApprovedAt: new Date() },
+    });
+  } else {
+    await prisma.purchaseRequest.update({
+      where: { id },
+      data: {
+        status: "APPROVED",
+        approvedById: me.id,
+        approvedAt: new Date(),
+        rejectedAt: null,
+        budgetAtApproval: impact?.budget ?? null,
+        committedAtApproval: impact?.committed ?? null,
+      },
+    });
+  }
+
+  await prisma.purchaseComment.create({
+    data: {
+      purchaseId: id,
+      authorId: me.id,
+      authorName: me.name,
+      kind: "APPROVED",
+      body: note?.trim() || (isSecondSignature ? "Second approval given." : "Approved."),
+    },
+  });
+
+  // Post to the ledger only once fully approved, and only once ever.
+  const fullyApproved = !check.needsSecondSignoff || isSecondSignature;
+  if (fullyApproved && pr.projectId && !pr.lineItemId) {
+    const maxOrder = await prisma.financialLineItem.aggregate({
+      where: { projectId: pr.projectId },
+      _max: { order: true },
+    });
+    const line = await prisma.financialLineItem.create({
+      data: {
+        projectId: pr.projectId,
+        category: pr.category === "MATERIAL" ? "Material" : pr.category === "SUBCONTRACTOR" ? "Subcontractor" : "Other",
+        description: `${pr.title}${pr.vendor ? ` — ${pr.vendor}` : ""} (PR-${String(pr.number).padStart(4, "0")})`,
+        vendor: pr.vendor,
+        qty: pr.quantity,
+        unitCost: pr.unitCost,
+        budgetAmount: pr.amount,
+        actualAmount: 0,
+        status: "Committed",
+        order: (maxOrder._max.order ?? -1) + 1,
+      },
+    });
+    await prisma.purchaseRequest.update({ where: { id }, data: { lineItemId: line.id } });
+
+    // Roll the project's committed total forward so the dashboard reflects it.
+    await prisma.project.update({
+      where: { id: pr.projectId },
+      data: { committed: { increment: pr.amount } },
+    });
+  }
+
+  if (pr.requestedById && pr.requestedById !== me.id) {
+    await prisma.notification.create({
+      data: {
+        recipientId: pr.requestedById,
+        type: "GENERAL",
+        title: fullyApproved ? "Purchase approved" : "First approval given",
+        body: `${pr.title} — $${pr.amount.toLocaleString("en-US")}`,
+        link: "/purchases",
+      },
+    });
+    const { notifyBySms } = await import("./sms/send");
+    if (fullyApproved) {
+      void notifyBySms(pr.requestedById, `Approved: ${pr.title} ($${pr.amount.toLocaleString("en-US")})`, pr.projectId);
+    }
+  }
+
+  await logActivity({
+    projectId: pr.projectId ?? undefined,
+    actor: me,
+    action: "financials.updated",
+    summary: `Approved PR-${String(pr.number).padStart(4, "0")} "${pr.title}" — $${pr.amount.toLocaleString("en-US")}`,
+    meta: { purchaseId: id },
+  });
+
+  revalidatePath("/purchases");
+  if (pr.projectId) revalidatePath(`/projects/${pr.projectId}`);
+  return { ok: true };
+}
+
+export async function rejectPurchase(id: string, note: string) {
+  const me = await requireAuth();
+  const { canApprovePurchase } = await import("./purchases");
+  const check = await canApprovePurchase(me, id);
+  if (!check.canApprove) throw new Error(check.reason || "You can't act on this request.");
+  if (!note?.trim()) throw new Error("Give a reason so the requester knows what to change.");
+
+  const pr = await prisma.purchaseRequest.findUnique({ where: { id } });
+  if (!pr) throw new Error("Request not found.");
+
+  await prisma.purchaseRequest.update({
+    where: { id },
+    data: { status: "REJECTED", rejectedAt: new Date(), approvedById: null, approvedAt: null },
+  });
+  await prisma.purchaseComment.create({
+    data: { purchaseId: id, authorId: me.id, authorName: me.name, kind: "REJECTED", body: note.trim() },
+  });
+
+  if (pr.requestedById && pr.requestedById !== me.id) {
+    await prisma.notification.create({
+      data: {
+        recipientId: pr.requestedById,
+        type: "GENERAL",
+        title: "Purchase request returned",
+        body: `${pr.title} — ${note.trim().slice(0, 80)}`,
+        link: "/purchases",
+      },
+    });
+  }
+
+  revalidatePath("/purchases");
+  return { ok: true };
+}
+
+/** Move through ordered -> received -> invoiced -> paid. */
+export async function advancePurchase(
+  id: string,
+  to: string,
+  extra?: { poNumber?: string; invoiceRef?: string; actualAmount?: number }
+) {
+  const me = await requireAuth();
+  const caps = await purchaseCaps(me);
+  const pr = await prisma.purchaseRequest.findUnique({ where: { id } });
+  if (!pr) throw new Error("Request not found.");
+
+  const ORDER = ["APPROVED", "ORDERED", "RECEIVED", "INVOICED", "PAID"];
+  if (!ORDER.includes(to)) throw new Error("Invalid status.");
+  if (!ORDER.includes(pr.status)) throw new Error("This request hasn't been approved yet.");
+  if (ORDER.indexOf(to) <= ORDER.indexOf(pr.status)) {
+    throw new Error("A purchase can only move forward.");
+  }
+  if (to === "PAID" && !caps.canRecordPayments) {
+    throw new Error("You don't have permission to record payments.");
+  }
+  if (!caps.canApprove && !caps.canRecordPayments && pr.requestedById !== me.id) {
+    throw new Error("You can't update this request.");
+  }
+
+  const stamp: any = { status: to };
+  if (to === "ORDERED") stamp.orderedAt = new Date();
+  if (to === "RECEIVED") stamp.receivedAt = new Date();
+  if (to === "INVOICED") stamp.invoicedAt = new Date();
+  if (to === "PAID") stamp.paidAt = new Date();
+  if (extra?.poNumber) stamp.poNumber = extra.poNumber.trim();
+  if (extra?.invoiceRef) stamp.invoiceRef = extra.invoiceRef.trim();
+
+  await prisma.purchaseRequest.update({ where: { id }, data: stamp });
+  await prisma.purchaseComment.create({
+    data: { purchaseId: id, authorId: me.id, authorName: me.name, kind: to, body: `Marked ${to.toLowerCase()}.` },
+  });
+
+  // Once invoiced, the committed figure becomes real spend.
+  if (to === "INVOICED" && pr.lineItemId) {
+    const actual = extra?.actualAmount ?? pr.amount;
+    await prisma.financialLineItem.update({
+      where: { id: pr.lineItemId },
+      data: { actualAmount: actual, status: "Invoiced", invoiceRef: extra?.invoiceRef ?? null },
+    });
+    if (pr.projectId) {
+      await prisma.project.update({
+        where: { id: pr.projectId },
+        data: { actualSpend: { increment: actual } },
+      });
+    }
+  }
+  if (to === "PAID" && pr.lineItemId) {
+    await prisma.financialLineItem.update({
+      where: { id: pr.lineItemId },
+      data: { status: "Paid", paidDate: new Date() },
+    });
+  }
+
+  revalidatePath("/purchases");
+  if (pr.projectId) revalidatePath(`/projects/${pr.projectId}`);
+  return { ok: true };
+}
+
+export async function cancelPurchase(id: string, note?: string) {
+  const me = await requireAuth();
+  const caps = await purchaseCaps(me);
+  const pr = await prisma.purchaseRequest.findUnique({ where: { id } });
+  if (!pr) throw new Error("Request not found.");
+  if (pr.requestedById !== me.id && !caps.isAdmin && !caps.canApprove) {
+    throw new Error("You can't cancel this request.");
+  }
+  if (["PAID"].includes(pr.status)) throw new Error("A paid purchase can't be cancelled.");
+
+  // Release the committed money back to the project.
+  if (pr.lineItemId && pr.projectId) {
+    await prisma.financialLineItem.delete({ where: { id: pr.lineItemId } }).catch(() => {});
+    await prisma.project.update({
+      where: { id: pr.projectId },
+      data: { committed: { decrement: pr.amount } },
+    });
+  }
+
+  await prisma.purchaseRequest.update({
+    where: { id },
+    data: { status: "CANCELLED", lineItemId: null },
+  });
+  await prisma.purchaseComment.create({
+    data: { purchaseId: id, authorId: me.id, authorName: me.name, kind: "CANCELLED", body: note?.trim() || "Cancelled." },
+  });
+
+  revalidatePath("/purchases");
+  return { ok: true };
+}
+
+export async function addPurchaseComment(purchaseId: string, body: string) {
+  const me = await requireAuth();
+  if (!body?.trim()) throw new Error("Write something first.");
+  const pr = await prisma.purchaseRequest.findUnique({ where: { id: purchaseId } });
+  if (!pr) throw new Error("Request not found.");
+
+  await prisma.purchaseComment.create({
+    data: { purchaseId, authorId: me.id, authorName: me.name, body: body.trim(), kind: "COMMENT" },
+  });
+
+  const audience = new Set<string>();
+  if (pr.requestedById) audience.add(pr.requestedById);
+  if (pr.approvedById) audience.add(pr.approvedById);
+  audience.delete(me.id);
+  if (audience.size) {
+    await prisma.notification.createMany({
+      data: Array.from(audience).map((recipientId) => ({
+        recipientId,
+        type: "GENERAL",
+        title: `${me.name} commented on a purchase`,
+        body: `${pr.title} — ${body.trim().slice(0, 70)}`,
+        link: "/purchases",
+      })),
+    });
+  }
+
+  revalidatePath("/purchases");
+  return { ok: true };
 }
