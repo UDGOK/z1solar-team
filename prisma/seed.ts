@@ -469,6 +469,30 @@ async function main() {
       : "  All vendor tags already present — nothing to do."
   );
 
+  // Migrate any exhibitor still carrying the deprecated single ownerId into the
+  // multi-owner join table. Same shape as the task assignee migration above:
+  // upsert rather than createMany({ skipDuplicates }), because skipDuplicates is
+  // unsupported on SQLite and this must behave identically on both providers.
+  console.log("Migrating exhibitor owners…");
+  const legacyOwners = await prisma.tradeShowExhibitor.findMany({
+    where: { ownerId: { not: null } },
+    select: { id: true, ownerId: true },
+  });
+  let ownersMigrated = 0;
+  for (const e of legacyOwners) {
+    const res = await prisma.tradeShowExhibitorOwner.upsert({
+      where: { exhibitorId_memberId: { exhibitorId: e.id, memberId: e.ownerId! } },
+      update: {},
+      create: { exhibitorId: e.id, memberId: e.ownerId! },
+    });
+    if (res) ownersMigrated++;
+  }
+  console.log(
+    legacyOwners.length
+      ? `  Migrated ${ownersMigrated} exhibitor owner(s) to the multi-owner table.`
+      : "  No legacy exhibitor owners to migrate."
+  );
+
   // --- Project codes for SMS routing ---
   // Derived from the title: first significant word, or an acronym for longer
   // names. Uniqueness is enforced with a numeric suffix rather than failing.

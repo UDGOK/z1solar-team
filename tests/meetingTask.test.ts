@@ -58,7 +58,7 @@ export default async function run() {
       );
 
       // --- owner but still no project ---
-      await db.tradeShowExhibitor.update({ where: { id: ex.id }, data: { ownerId: owner.id } });
+      await db.tradeShowExhibitorOwner.create({ data: { exhibitorId: ex.id, memberId: owner.id } });
       r = await syncMeetingTask(db, ex.id);
       ok(r.action === "none", "owner without a project still creates nothing", JSON.stringify(r));
       ok(
@@ -74,7 +74,7 @@ export default async function run() {
       r = await syncMeetingTask(db, ex.id);
       ok(r.action === "created", "task created once flag + owner + project are all set", JSON.stringify(r));
 
-      const todoId = (r as any).todoId;
+      let todoId = (r as any).todoId;
       let todo = await db.todo.findUnique({
         where: { id: todoId },
         include: { assignees: true },
@@ -97,13 +97,44 @@ export default async function run() {
       ok(!!todo?.text.includes("C2200"), "…with the new booth", String(todo?.text));
       ok((await db.todo.count()) === 1, "still one task");
 
-      // --- owner handover reassigns rather than duplicating ---
-      await db.tradeShowExhibitor.update({ where: { id: ex.id }, data: { ownerId: other.id } });
+      // --- a SECOND owner joins: both get the task, still one task ---
+      await db.tradeShowExhibitorOwner.create({ data: { exhibitorId: ex.id, memberId: other.id } });
+      await syncMeetingTask(db, ex.id);
+      todo = await db.todo.findUnique({ where: { id: todoId }, include: { assignees: true } });
+      ok(todo?.assignees.length === 2, "two owners means two assignees on ONE task",
+         JSON.stringify(todo?.assignees.map((a) => a.memberId)));
+      ok(
+        !!todo?.assignees.some((a) => a.memberId === owner.id) &&
+          !!todo?.assignees.some((a) => a.memberId === other.id),
+        "both people are on it"
+      );
+      ok((await db.todo.count()) === 1, "adding an owner didn't create a second task");
+
+      // repeated syncs must not churn the assignee table either
+      await syncMeetingTask(db, ex.id);
+      await syncMeetingTask(db, ex.id);
+      todo = await db.todo.findUnique({ where: { id: todoId }, include: { assignees: true } });
+      ok(todo?.assignees.length === 2, "still exactly two assignees after re-syncing",
+         String(todo?.assignees.length));
+
+      // --- handover: first owner steps off, task follows ---
+      await db.tradeShowExhibitorOwner.deleteMany({ where: { exhibitorId: ex.id, memberId: owner.id } });
       await syncMeetingTask(db, ex.id);
       todo = await db.todo.findUnique({ where: { id: todoId }, include: { assignees: true } });
       ok(todo?.assignees.length === 1 && todo.assignees[0].memberId === other.id,
-         "reassigned to the new owner", JSON.stringify(todo?.assignees));
+         "removing an owner drops them from the task", JSON.stringify(todo?.assignees));
       ok((await db.todo.count()) === 1, "handover didn't create a second task");
+
+      // --- last owner removed: task goes ---
+      await db.tradeShowExhibitorOwner.deleteMany({ where: { exhibitorId: ex.id } });
+      const rNoOwner = await syncMeetingTask(db, ex.id);
+      ok(rNoOwner.action === "removed", "removing the last owner removes the task",
+         JSON.stringify(rNoOwner));
+      await db.tradeShowExhibitorOwner.create({ data: { exhibitorId: ex.id, memberId: other.id } });
+      const rReadded = await syncMeetingTask(db, ex.id);
+      ok(rReadded.action === "created", "re-adding an owner creates a fresh task", JSON.stringify(rReadded));
+      // The old task was deleted, so the id changed — track the new one.
+      todoId = (rReadded as any).todoId;
 
       // --- marking Met ticks the task off ---
       await db.tradeShowExhibitor.update({ where: { id: ex.id }, data: { meetingStatus: "Met" } });
@@ -119,9 +150,9 @@ export default async function run() {
           tradeShowId: show.id,
           vendorId: (await db.vendor.create({ data: { name: "Fluence", matchKey: "fluence" } })).id,
           meetingWanted: true,
-          ownerId: owner.id,
         },
       });
+      await db.tradeShowExhibitorOwner.create({ data: { exhibitorId: ex2.id, memberId: owner.id } });
       await db.tradeShowExhibitorProject.create({ data: { exhibitorId: ex2.id, projectId: project.id } });
       const r2 = await syncMeetingTask(db, ex2.id);
       ok(r2.action === "created", "second exhibitor gets its own task");
@@ -135,9 +166,9 @@ export default async function run() {
           tradeShowId: show.id,
           vendorId: (await db.vendor.create({ data: { name: "Vertiv", matchKey: "vertiv" } })).id,
           meetingWanted: true,
-          ownerId: owner.id,
         },
       });
+      await db.tradeShowExhibitorOwner.create({ data: { exhibitorId: ex3.id, memberId: owner.id } });
       await db.tradeShowExhibitorProject.create({ data: { exhibitorId: ex3.id, projectId: project.id } });
       const r4: any = await syncMeetingTask(db, ex3.id);
       await db.todoComment.create({

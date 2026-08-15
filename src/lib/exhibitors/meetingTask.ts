@@ -11,15 +11,19 @@ import type { PrismaClient } from "@prisma/client";
  *
  * WHY IT NEEDS A PROJECT
  * Todo.projectId is required by the schema; a task cannot exist outside a
- * project. So a task appears only once the meeting is flagged, has an owner,
- * AND is linked to at least one project. That is a real constraint, not an
+ * project. So a task appears only once the meeting is flagged, has at least
+ * one owner, AND is linked to at least one project. That is a real constraint, not an
  * oversight — making projectId nullable would touch the dashboard, the project
  * pages, the weekly report and the tasks grouping, which is not a change worth
  * making three weeks before a show. The UI tells you which piece is missing.
  *
  * It also stops the flood. Flagging forty vendors while walking a floor does
- * not put forty tasks in anyone's list; assigning an owner and a project does,
+ * not put forty tasks in anyone's list; assigning owners and a project does,
  * and that is a deliberate act.
+ *
+ * Every owner gets the task, via TodoAssignee. Two people chasing one vendor
+ * both see it in their own task list — which is the point of allowing more
+ * than one.
  */
 
 export type TaskSyncResult =
@@ -44,12 +48,14 @@ export async function syncMeetingTask(
       vendor: { select: { name: true } },
       tradeShow: { select: { name: true, startDate: true } },
       projects: { select: { projectId: true } },
+      owners: { select: { memberId: true } },
     },
   });
   if (!ex) return { action: "none", reason: "Exhibitor no longer exists." };
 
   const existingId = ex.todoId;
-  const wantsTask = ex.meetingWanted && !!ex.ownerId && ex.projects.length > 0;
+  const ownerIds = ex.owners.map((o) => o.memberId);
+  const wantsTask = ex.meetingWanted && ownerIds.length > 0 && ex.projects.length > 0;
 
   // --- the meeting happened, or was called off ---
   if (existingId && (ex.meetingStatus === "Met" || ex.meetingStatus === "No longer needed")) {
@@ -63,7 +69,7 @@ export async function syncMeetingTask(
       if (!todo.done) {
         await db.todo.update({
           where: { id: existingId },
-          data: { done: true, completedById: ex.ownerId, completedAt: new Date() },
+          data: { done: true, completedById: ownerIds[0] ?? null, completedAt: new Date() },
         });
       }
       return { action: "completed", todoId: existingId };
@@ -85,7 +91,7 @@ export async function syncMeetingTask(
     if (!existingId) {
       const missing = !ex.meetingWanted
         ? "not flagged for a meeting"
-        : !ex.ownerId
+        : ownerIds.length === 0
           ? "no one is chasing it yet"
           : "no project linked yet";
       return { action: "none", reason: missing };
@@ -114,12 +120,15 @@ export async function syncMeetingTask(
         where: { id: existingId },
         data: { text, projectId, done: false, completedById: null, completedAt: null },
       });
-      // Reassign only when the owner actually changed, so an unrelated edit
-      // doesn't churn the join table.
-      const current = todo.assignees.map((a) => a.memberId);
-      if (current.length !== 1 || current[0] !== ex.ownerId) {
+      // Compare as sets: the task should carry exactly the current owners, and
+      // an unrelated edit must not churn the join table.
+      const current = todo.assignees.map((a) => a.memberId).sort();
+      const wanted = [...ownerIds].sort();
+      if (current.length !== wanted.length || current.some((m, i) => m !== wanted[i])) {
         await db.todoAssignee.deleteMany({ where: { todoId: existingId } });
-        await db.todoAssignee.create({ data: { todoId: existingId, memberId: ex.ownerId! } });
+        await db.todoAssignee.createMany({
+          data: wanted.map((memberId) => ({ todoId: existingId, memberId })),
+        });
       }
       return { action: "updated", todoId: existingId };
     }
@@ -132,14 +141,16 @@ export async function syncMeetingTask(
       projectId,
       text,
       order: (max._max.order ?? 0) + 1,
-      createdById: ex.ownerId,
+      createdById: ownerIds[0],
       // Deliberately NOT requiring lead confirmation. That two-stage flow exists
       // for delivery commitments out of meetings; "go and talk to someone at a
       // booth" doesn't need a second person to sign it off.
       requiresConfirmation: false,
     },
   });
-  await db.todoAssignee.create({ data: { todoId: created.id, memberId: ex.ownerId! } });
+  await db.todoAssignee.createMany({
+    data: ownerIds.map((memberId) => ({ todoId: created.id, memberId })),
+  });
   await db.tradeShowExhibitor.update({
     where: { id: exhibitorId },
     data: { todoId: created.id },

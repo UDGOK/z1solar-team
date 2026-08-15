@@ -13,7 +13,7 @@ can skip this time.
 
 1. Put `EXTRACT-SAFELY.ps1` in the same folder as `z1power-cms-COMPLETE.zip`
 2. Right-click it → **Run with PowerShell**
-3. Wait for **`EXTRACTION CORRECT - all 11 bracket-route files match.`**
+3. Wait for **`EXTRACTION CORRECT - all 12 bracket-route files match.`**
 
 If it says anything else, **stop**. Don't build, don't push. Send the output.
 
@@ -106,43 +106,54 @@ node scripts/make-manifest.js
 
 ---
 
-# This round — 15 August 2026 (c)
+# This round — 15 August 2026 (e)
 
-**Changed:** `prisma/schema.prisma` (`todoId` on TradeShowExhibitor),
-new `src/lib/ai/vendorScore.ts`, new `src/lib/exhibitors/meetingTask.ts`,
-`src/lib/exhibitors/actions.ts`, `src/components/ExhibitorsHub.tsx`,
-`src/app/trade-shows/[id]/exhibitors/page.tsx`, new `tests/meetingTask.test.ts`.
+Closes the three known gaps: column mapper UI, tag management screen,
+printable target list.
 
-**Schema DID change** — `npm run db:push` is required.
+**Changed:** new `src/lib/pdf/MeetingTargetListDocument.tsx`,
+new `src/app/api/trade-shows/[id]/target-list/route.ts`,
+new `src/app/settings/vendor-tags/page.tsx`,
+new `src/components/VendorTagManager.tsx`,
+new `tests/columnMap.test.ts`,
+`src/lib/importers/columnMap.ts` (fallback bug fix),
+`src/lib/exhibitors/actions.ts`, `src/components/ExhibitorImportWizard.tsx`,
+`src/components/ExhibitorsHub.tsx`, `src/app/settings/page.tsx`.
+
+**No schema change** — `npm run db:push` is a no-op, safe to skip.
+
+⚠ **The manifest is now 12 files, not 11** (new target-list API route). Use the
+EXTRACT-SAFELY.ps1 from THIS zip.
 
 ### Full sequence
 
 ```
-cd /d "C:\Users\Yasir\Downloads\github clone z1\z1solar-team"
+cd /d "C:\\Users\\Yasir\\Downloads\\github clone z1\\z1solar-team"
 npm install
 npm test
 npm run build
-npm run db:push
-npm run db:seed
 git status
 git add -A
-git commit -m "Add AI vendor scoring pass and automatic meeting tasks for the assigned owner"
+git commit -m "Add column mapping step, vendor tag management screen, and printable meeting target list"
 git push origin main
 ```
 
-`npm test` should now report **114** assertions. `npm run test:db` reports **163**.
+`npm test` reports **145** assertions. `npm run test:db` reports **200**.
 
-### After deploying
+### What's new, and where
 
-**Meeting tasks** work automatically from now on. A task appears in someone's
-Tasks list when an exhibitor has all three of: the meeting flag on, an owner
-set, AND at least one linked project. Marking the meeting "Met" ticks the task
-off; un-flagging removes it, unless somebody has commented on it.
+| Feature | Where |
+|---|---|
+| Column mapping step | Import exhibitors → upload a .csv/.xlsx → new "Map columns" step before review |
+| Vendor tag management | Settings → Manage Vendor Tags |
+| Printable target list | Exhibitors & meetings → **Print target list** (opens a PDF) |
 
-**To run the AI assessment:** Trade Shows → Datacloud USA 2026 → Exhibitors &
-meetings → **Assess with AI**. It works through the list in batches of 12 and
-shows progress. Leave the tab open; if you close it, nothing is lost and
-pressing the button again resumes where it stopped.
+The target list prints only the flagged meetings. Add `?all=1` to the URL for
+every exhibitor instead — useful as a floor directory, though at 811 rows it is
+not something to carry.
 
-Requires `DEEPSEEK_API_KEY` in Vercel. Without it the button reports that
-plainly rather than failing silently.
+### Still to do by hand
+
+**Fix the Datacloud dates.** Trade Shows → Datacloud USA 2026 → Details → Edit,
+set 1 September to 3 September 2026. The countdown on the Trade Shows page reads
+from this record.

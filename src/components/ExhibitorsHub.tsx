@@ -25,8 +25,8 @@ export type ExhibitorItem = {
   priority: string;
   notes: string | null;
   outcome: string | null;
-  ownerId: string | null;
-  ownerName: string | null;
+  ownerIds: string[];
+  ownerNames: string[];
   vendor: {
     id: string;
     name: string;
@@ -152,7 +152,7 @@ export default function ExhibitorsHub({
       total: items.length,
       flagged: flagged.length,
       met: flagged.filter((i) => i.meetingStatus === "Met").length,
-      unassigned: flagged.filter((i) => !i.ownerId).length,
+      unassigned: flagged.filter((i) => i.ownerIds.length === 0).length,
     };
   }, [items]);
 
@@ -225,6 +225,14 @@ export default function ExhibitorsHub({
             <button className="btn-secondary" onClick={runScoring} disabled={!!scoring && !scoring.note.startsWith("Finished")}>
               Assess with AI
             </button>
+            <a
+              href={`/api/trade-shows/${showId}/target-list`}
+              target="_blank"
+              rel="noreferrer"
+              className="btn-secondary"
+            >
+              Print target list
+            </a>
             <Link href={`/trade-shows/${showId}/exhibitors/import`} className="btn-primary">
               Import exhibitors
             </Link>
@@ -493,7 +501,11 @@ function Row({
           {item.projectNames.join(", ") || <span className="text-brand-inkFaint">&mdash;</span>}
         </td>
         <td className="hidden px-3 py-3 align-top text-xs text-brand-inkSoft lg:table-cell">
-          {item.ownerName || <span className="text-brand-inkFaint">&mdash;</span>}
+          {item.ownerNames.length > 0 ? (
+            item.ownerNames.join(", ")
+          ) : (
+            <span className="text-brand-inkFaint">&mdash;</span>
+          )}
         </td>
         <td className="px-3 py-3 align-top">
           <button
@@ -715,19 +727,31 @@ function Row({
                       </div>
 
                       <label className="label mt-2.5">Who&rsquo;s chasing it</label>
-                      <select
-                        className="input"
-                        value={item.ownerId ?? ""}
-                        disabled={!canAnnotate || busy}
-                        onChange={(e) => run(() => updateExhibitor(item.id, { ownerId: e.target.value || null }))}
-                      >
-                        <option value="">&mdash; unassigned &mdash;</option>
+                      <div className="max-h-32 overflow-y-auto rounded-md border border-brand-line bg-white p-2">
                         {team.map((m) => (
-                          <option key={m.id} value={m.id}>
+                          <label key={m.id} className="flex items-center gap-2 py-0.5 text-[12.5px]">
+                            <input
+                              type="checkbox"
+                              className="accent-brand-green"
+                              checked={item.ownerIds.includes(m.id)}
+                              disabled={!canAnnotate || busy}
+                              onChange={(e) =>
+                                run(() =>
+                                  updateExhibitor(item.id, {
+                                    ownerIds: e.target.checked
+                                      ? [...item.ownerIds, m.id]
+                                      : item.ownerIds.filter((x) => x !== m.id),
+                                  })
+                                )
+                              }
+                            />
                             {m.name}
-                          </option>
+                          </label>
                         ))}
-                      </select>
+                      </div>
+                      <p className="mt-1 text-[11.5px] text-brand-inkFaint">
+                        Everyone ticked gets this in their own Tasks list.
+                      </p>
                     </>
                   )}
                 </div>

@@ -205,7 +205,8 @@ export type ExhibitorPatch = {
   meetingWanted?: boolean;
   meetingStatus?: string;
   priority?: string;
-  ownerId?: string | null;
+  /** Replaces the whole set of people chasing this meeting. */
+  ownerIds?: string[];
   notes?: string | null;
   outcome?: string | null;
   projectIds?: string[];
@@ -229,7 +230,7 @@ export async function updateExhibitor(exhibitorId: string, patch: ExhibitorPatch
   if (patch.meetingWanted !== undefined) data.meetingWanted = patch.meetingWanted;
   if (patch.meetingStatus !== undefined) data.meetingStatus = patch.meetingStatus;
   if (patch.priority !== undefined) data.priority = patch.priority;
-  if (patch.ownerId !== undefined) data.ownerId = patch.ownerId || null;
+
   if (patch.notes !== undefined) data.notes = patch.notes?.trim() || null;
   if (patch.outcome !== undefined) data.outcome = patch.outcome?.trim() || null;
 
@@ -242,6 +243,21 @@ export async function updateExhibitor(exhibitorId: string, patch: ExhibitorPatch
   await prisma.$transaction(async (tx) => {
     if (Object.keys(data).length > 0) {
       await tx.tradeShowExhibitor.update({ where: { id: exhibitorId }, data });
+    }
+    if (patch.ownerIds) {
+      const wanted = Array.from(new Set(patch.ownerIds.filter(Boolean)));
+      await tx.tradeShowExhibitorOwner.deleteMany({ where: { exhibitorId } });
+      if (wanted.length > 0) {
+        await tx.tradeShowExhibitorOwner.createMany({
+          data: wanted.map((memberId) => ({ exhibitorId, memberId })),
+        });
+      }
+      // Keep the deprecated single field pointing at the first owner so any
+      // older query still resolves to a real person rather than null.
+      await tx.tradeShowExhibitor.update({
+        where: { id: exhibitorId },
+        data: { ownerId: wanted[0] ?? null },
+      });
     }
     if (patch.projectIds) {
       await tx.tradeShowExhibitorProject.deleteMany({ where: { exhibitorId } });
@@ -821,4 +837,120 @@ export async function setVendorScore(
     },
   });
   if (fromTradeShowId) refresh(fromTradeShowId);
+}
+
+// ---------------------------------------------------------------------------
+// Two-step upload: read the file, confirm the mapping, THEN stage
+// ---------------------------------------------------------------------------
+
+export type PreparedUpload = {
+  /** Header row as it appears in their file. */
+  headers: string[];
+  /** Our best guess, one entry per header. */
+  map: FieldKey[];
+  hasHeader: boolean;
+  /** First few real values per column, so a wrong guess is visible not theoretical. */
+  samples: string[][];
+  rowCount: number;
+  fileName: string;
+  source: string;
+  sheetName?: string;
+  otherSheets?: string[];
+  /** The parsed grid, handed back so the confirm step needn't re-read the file. */
+  grid: string[][];
+};
+
+/**
+ * Reads an uploaded spreadsheet and returns the grid plus a suggested mapping,
+ * WITHOUT staging anything.
+ *
+ * Separated from staging so the reviewer sees, and can correct, how their
+ * columns line up before a single row is written. Auto-guessing alone was the
+ * known weak point: it handled both real files we had, but a show with unusual
+ * headers would silently import a description column as the company name and
+ * the only recovery was to fix the spreadsheet and start over.
+ *
+ * PDFs and pasted text skip this — they have no columns to map.
+ */
+export async function prepareUpload(tradeShowId: string, form: FormData): Promise<PreparedUpload> {
+  await requireManage(tradeShowId);
+
+  const file = form.get("file");
+  if (!file || typeof file === "string") throw new Error("No file was uploaded.");
+  const f = file as File;
+
+  const { detectKind, readDelimitedBuffer, readWorkbookBuffer, MAX_UPLOAD_BYTES } = await import(
+    "../importers/sources"
+  );
+
+  if (f.size > MAX_UPLOAD_BYTES) {
+    throw new Error(
+      `That file is ${(f.size / 1024 / 1024).toFixed(1)} MB. The limit is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`
+    );
+  }
+
+  const kind = detectKind(f.name, f.type);
+  if (kind !== "csv" && kind !== "xlsx") {
+    throw new Error("That isn't a spreadsheet. Use the PDF or paste option instead.");
+  }
+
+  const buf = Buffer.from(await f.arrayBuffer());
+  const grid = kind === "xlsx" ? await readWorkbookBuffer(buf) : readDelimitedBuffer(buf);
+  if (grid.rows.length === 0) throw new Error("That file appears to be empty.");
+
+  const { hasHeader, map, headers } = await suggestColumnMap(grid.rows);
+
+  // Up to three real values per column. Showing the data beside the guess is
+  // what turns "is this right?" into an obvious yes or no.
+  const firstData = hasHeader ? 1 : 0;
+  const width = Math.max(...grid.rows.slice(0, 20).map((r) => r.length), headers.length);
+  const samples: string[][] = [];
+  for (let c = 0; c < width; c++) {
+    const vals: string[] = [];
+    for (let r = firstData; r < grid.rows.length && vals.length < 3; r++) {
+      const v = String(grid.rows[r]?.[c] ?? "").trim();
+      if (v) vals.push(v.length > 60 ? v.slice(0, 59) + "…" : v);
+    }
+    samples.push(vals);
+  }
+
+  return {
+    headers: hasHeader
+      ? headers.map((h, i) => String(h || "").trim() || `Column ${i + 1}`)
+      : Array.from({ length: width }, (_, i) => `Column ${i + 1}`),
+    map,
+    hasHeader,
+    samples,
+    rowCount: grid.rows.length - (hasHeader ? 1 : 0),
+    fileName: f.name,
+    source: kind === "xlsx" ? "FILE_XLSX" : "FILE_CSV",
+    sheetName: grid.sheetName,
+    otherSheets: grid.otherSheets,
+    grid: grid.rows,
+  };
+}
+
+/** Stages a prepared upload using the mapping the reviewer confirmed. */
+export async function stagePreparedUpload(
+  tradeShowId: string,
+  prepared: { grid: string[][]; map: FieldKey[]; hasHeader: boolean; source: string; fileName: string }
+) {
+  await requireManage(tradeShowId);
+
+  if (!prepared.map.includes("companyName")) {
+    throw new Error("Pick which column holds the company name — nothing can be imported without it.");
+  }
+
+  const importId = await stageImportFromGrid(tradeShowId, prepared.grid, prepared.map, {
+    source: prepared.source,
+    fileName: prepared.fileName,
+    hasHeader: prepared.hasHeader,
+  });
+
+  const found = await prisma.exhibitorImportItem.count({ where: { importId } });
+  return {
+    importId,
+    found,
+    skipped: prepared.grid.length - (prepared.hasHeader ? 1 : 0) - found,
+  };
 }

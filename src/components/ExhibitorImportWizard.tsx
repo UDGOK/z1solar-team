@@ -3,7 +3,10 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { FIELD_LABELS, type FieldKey } from "@/lib/importers/columnMap";
 import {
+  prepareUpload,
+  stagePreparedUpload,
   stageImportFromUpload,
   stageImportFromText,
   getImportForReview,
@@ -32,6 +35,19 @@ type ReviewItem = {
   sourceLine: number;
 };
 
+type Prepared = {
+  headers: string[];
+  map: FieldKey[];
+  hasHeader: boolean;
+  samples: string[][];
+  rowCount: number;
+  fileName: string;
+  source: string;
+  sheetName?: string;
+  otherSheets?: string[];
+  grid: string[][];
+};
+
 type Review = {
   id: string;
   status: string;
@@ -52,6 +68,7 @@ export default function ExhibitorImportWizard({
   const router = useRouter();
   const [source, setSource] = useState<"file" | "paste">("file");
   const [pasted, setPasted] = useState("");
+  const [prepared, setPrepared] = useState<Prepared | null>(null);
   const [review, setReview] = useState<Review | null>(null);
   const [summary, setSummary] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -68,23 +85,68 @@ export default function ExhibitorImportWizard({
     setSummary(note);
   }
 
+  /**
+   * Spreadsheets go through a mapping step; PDFs go straight to review because
+   * they have no columns to map.
+   */
   function onFile(file: File) {
     setError(null);
+    const isPdf = /\.pdf$/i.test(file.name);
     startTransition(async () => {
       try {
         const fd = new FormData();
         fd.append("file", file);
-        const r = await stageImportFromUpload(showId, fd);
+        if (isPdf) {
+          const r = await stageImportFromUpload(showId, fd);
+          await loadReview(
+            r.importId,
+            `${r.found} rows found in ${file.name}${r.skipped > 0 ? ` · ${r.skipped} lines skipped` : ""}`
+          );
+          return;
+        }
+        setPrepared(await prepareUpload(showId, fd));
+      } catch (e) {
+        fail(e);
+      }
+    });
+  }
+
+  function confirmMapping() {
+    if (!prepared) return;
+    setError(null);
+    startTransition(async () => {
+      try {
+        const r = await stagePreparedUpload(showId, {
+          grid: prepared.grid,
+          map: prepared.map,
+          hasHeader: prepared.hasHeader,
+          source: prepared.source,
+          fileName: prepared.fileName,
+        });
+        setPrepared(null);
         await loadReview(
           r.importId,
-          `${r.found} rows found in ${file.name}${r.skipped > 0 ? ` · ${r.skipped} lines skipped` : ""}${
-            (r as any).sheetName ? ` · sheet "${(r as any).sheetName}"` : ""
+          `${r.found} rows found in ${prepared.fileName}${r.skipped > 0 ? ` · ${r.skipped} skipped` : ""}${
+            prepared.sheetName ? ` · sheet "${prepared.sheetName}"` : ""
           }`
         );
       } catch (e) {
         fail(e);
       }
     });
+  }
+
+  function setField(col: number, field: FieldKey) {
+    if (!prepared) return;
+    const map = [...prepared.map];
+    // Each field can only be claimed once. Assigning it elsewhere releases the
+    // previous column rather than silently mapping two columns onto one field,
+    // where one would overwrite the other with no indication.
+    if (field !== "ignore") {
+      for (let i = 0; i < map.length; i++) if (i !== col && map[i] === field) map[i] = "ignore";
+    }
+    map[col] = field;
+    setPrepared({ ...prepared, map });
   }
 
   function onPaste() {
@@ -132,11 +194,13 @@ export default function ExhibitorImportWizard({
       </p>
 
       <div className="mb-5 flex flex-wrap items-center gap-2 font-mono text-[11px] uppercase tracking-widest text-brand-inkFaint">
-        <span className={!review ? "font-bold text-brand-greenDark" : ""}>1 · Source</span>
+        <span className={!review && !prepared ? "font-bold text-brand-greenDark" : ""}>1 · Source</span>
         <span>&rarr;</span>
-        <span className={review ? "font-bold text-brand-greenDark" : ""}>2 · Review</span>
+        <span className={prepared ? "font-bold text-brand-greenDark" : ""}>2 · Map columns</span>
         <span>&rarr;</span>
-        <span>3 · Commit</span>
+        <span className={review ? "font-bold text-brand-greenDark" : ""}>3 · Review</span>
+        <span>&rarr;</span>
+        <span>4 · Commit</span>
       </div>
 
       {error && (
@@ -146,7 +210,7 @@ export default function ExhibitorImportWizard({
       )}
 
       {/* ---------- step 1 ---------- */}
-      {!review && (
+      {!review && !prepared && (
         <>
           <div className="mb-5 grid gap-3 sm:grid-cols-2">
             {[
@@ -190,10 +254,16 @@ export default function ExhibitorImportWizard({
                   }}
                   className="block w-full text-sm text-brand-inkSoft file:mr-3 file:rounded-md file:border-0 file:bg-brand-green file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-brand-greenDark"
                 />
-                <p className="mt-2 text-xs text-brand-inkFaint">
-                  Columns are matched to our fields automatically from the header row. A PDF is read
-                  for its text layer &mdash; a scanned guide has nothing to extract.
-                </p>
+                <div className="mt-3 rounded-md border border-[#F0DCB0] bg-[#FFF8E7] px-3 py-2.5 text-xs text-[#7c5c11]">
+                  <b>How columns are handled.</b> We read your header row and suggest which of our
+                  fields each column belongs to &mdash; then show you every guess next to real values
+                  from your file so you can correct any of it before anything is imported. Only the
+                  company name is required; everything else can be left as &ldquo;ignore&rdquo;.
+                  <div className="mt-1.5">
+                    A PDF skips this step and is read for its text layer &mdash; a scanned guide has
+                    no text to extract, and will say so rather than importing nothing silently.
+                  </div>
+                </div>
               </>
             ) : (
               <>
@@ -217,6 +287,116 @@ export default function ExhibitorImportWizard({
             )}
             {busy && <p className="mt-3 text-sm text-brand-inkSoft">Reading&hellip;</p>}
           </div>
+        </>
+      )}
+
+      {/* ---------- step 2: column mapping ---------- */}
+      {prepared && !review && (
+        <>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="kicker">[ Check the columns ]</p>
+              <div className="mt-1 font-heading text-sm font-bold text-brand-ink">
+                {prepared.fileName}
+              </div>
+              <p className="text-xs text-brand-inkFaint">
+                {prepared.rowCount} rows · {prepared.headers.length} columns
+                {prepared.sheetName ? ` · sheet "${prepared.sheetName}"` : ""}
+                {prepared.hasHeader ? "" : " · no header row detected"}
+              </p>
+            </div>
+            <button className="btn-secondary" disabled={busy} onClick={() => setPrepared(null)}>
+              Choose a different file
+            </button>
+          </div>
+
+          {prepared.otherSheets && prepared.otherSheets.length > 0 && (
+            <div className="mb-4 rounded-md border border-[#F0DCB0] bg-[#FFF8E7] px-4 py-3 text-sm text-[#7c5c11]">
+              This workbook also contains{" "}
+              <b>{prepared.otherSheets.join(", ")}</b>. We read{" "}
+              <b>{prepared.sheetName}</b> because it looked most like the exhibitor list. If that&rsquo;s
+              wrong, delete the other sheets and upload again.
+            </div>
+          )}
+
+          <div className="card overflow-hidden">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr>
+                  <th className="tag w-[26%] border-b border-brand-line px-3 py-2 text-left text-brand-inkFaint">
+                    Column in your file
+                  </th>
+                  <th className="tag w-[26%] border-b border-brand-line px-3 py-2 text-left text-brand-inkFaint">
+                    Maps to
+                  </th>
+                  <th className="tag border-b border-brand-line px-3 py-2 text-left text-brand-inkFaint">
+                    What&rsquo;s actually in it
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {prepared.headers.map((h, col) => {
+                  const field = prepared.map[col] ?? "ignore";
+                  const empty = (prepared.samples[col] ?? []).length === 0;
+                  return (
+                    <tr key={col} className="border-b border-[#EEEEEA]">
+                      <td className="px-3 py-2.5 align-top">
+                        <span className="font-heading text-sm font-bold text-brand-ink">{h}</span>
+                        {empty && (
+                          <div className="text-[11px] text-brand-inkFaint">always empty</div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 align-top">
+                        <select
+                          className="input"
+                          value={field}
+                          disabled={busy}
+                          onChange={(e) => setField(col, e.target.value as FieldKey)}
+                        >
+                          {(Object.keys(FIELD_LABELS) as FieldKey[]).map((k) => (
+                            <option key={k} value={k}>
+                              {FIELD_LABELS[k]}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-3 py-2.5 align-top font-mono text-[11.5px] text-brand-inkFaint">
+                        {(prepared.samples[col] ?? []).map((v, i) => (
+                          <div key={i}>{v}</div>
+                        ))}
+                        {empty && <span>&mdash;</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-3.5">
+              <span className="text-[12.5px] text-brand-inkFaint">
+                {prepared.map.includes("companyName") ? (
+                  <>Still nothing written to the database.</>
+                ) : (
+                  <span className="font-semibold text-red-600">
+                    Pick which column holds the company name.
+                  </span>
+                )}
+              </span>
+              <button
+                className="btn-primary"
+                disabled={busy || !prepared.map.includes("companyName")}
+                onClick={confirmMapping}
+              >
+                {busy ? "Reading…" : `Read ${prepared.rowCount} rows →`}
+              </button>
+            </div>
+          </div>
+
+          <p className="mt-3 text-xs text-brand-inkFaint">
+            We guess the mapping from your header names. Anything we couldn&rsquo;t place is set to
+            &ldquo;ignore&rdquo; rather than guessed at. A field can only be used once &mdash;
+            assigning it to a new column releases the old one.
+          </p>
         </>
       )}
 

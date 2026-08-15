@@ -70,6 +70,16 @@ export default async function SettingsPage() {
           </div>
         )}
 
+        {(isAdmin || caps.canManageTradeShows) && (
+          <div className="card p-5 bg-white">
+            <p className="kicker mb-2">Vendor Tags</p>
+            <p className="text-xs text-brand-inkFaint mb-3">
+              What exhibitors and vendors do, used to filter a trade show&rsquo;s company list.
+            </p>
+            <Link href="/settings/vendor-tags" className="btn-secondary text-xs">Manage Vendor Tags →</Link>
+          </div>
+        )}
+
         {isAdmin && (
           <>
             <MeetingLinkForm initialLink={settings.meetingLink} />

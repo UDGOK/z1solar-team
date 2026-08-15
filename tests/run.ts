@@ -6,11 +6,12 @@
  */
 import vendorsMatch from "./vendors.match.test";
 import importers from "./importers.test";
+import columnMap from "./columnMap.test";
 import importE2E from "./import.e2e.test";
 import meetingTask from "./meetingTask.test";
 
 async function main() {
-  const suites = [vendorsMatch, importers, importE2E, meetingTask];
+  const suites = [vendorsMatch, importers, columnMap, importE2E, meetingTask];
   let pass = 0;
   let fail = 0;
 

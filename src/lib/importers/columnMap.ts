@@ -146,10 +146,19 @@ export function guessColumnMap(headers: string[]): FieldKey[] {
   }
 
   // A file with no recognisable name column is still importable: assume the
-  // first non-empty column is the company, which is true of every plain list
+  // first UNCLAIMED column is the company, which holds for every plain list
   // we've seen, and let the reviewer correct it if not.
+  //
+  // "Unclaimed" matters. This used to take the first non-empty column outright,
+  // which quietly destroyed a correct guess: given headers like
+  // ["Stand Ref", "Zone Code", ...] it overwrote the booth mapping AND named
+  // the booth column as the company — one wrong guess producing two wrong
+  // fields. Better to leave companyName unset and let the mapping screen insist
+  // on a choice than to be confidently wrong.
   if (!taken.has("companyName")) {
-    const idx = headers.findIndex((h) => String(h || "").trim() !== "");
+    const idx = out.findIndex(
+      (field, i) => field === "ignore" && String(headers[i] || "").trim() !== ""
+    );
     if (idx >= 0) out[idx] = "companyName";
   }
 
