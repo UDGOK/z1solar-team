@@ -2,11 +2,15 @@
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   updateExhibitor,
   addExhibitorNote,
   addExhibitorManually,
   updateVendor,
+  scoreNextVendorBatch,
+  countUnscoredVendors,
+  setVendorScore,
 } from "@/lib/exhibitors/actions";
 import { MEETING_STATUSES } from "@/lib/exhibitors/constants";
 
@@ -30,6 +34,10 @@ export type ExhibitorItem = {
     websiteUrl: string | null;
     hqCountry: string | null;
     notes: string | null;
+    sector: string | null;
+    reputationScore: number | null;
+    riskNotes: string | null;
+    riskSource: string | null;
     tagIds: string[];
     tagNames: string[];
     contacts: { id: string; name: string; title: string | null; email: string | null; phone: string | null }[];
@@ -86,6 +94,7 @@ export default function ExhibitorsHub({
   canManage,
   canAnnotate,
 }: Props) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [activeTags, setActiveTags] = useState<string[]>([]);
   const [flaggedOnly, setFlaggedOnly] = useState(false);
@@ -94,6 +103,48 @@ export default function ExhibitorsHub({
   const [showAdd, setShowAdd] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [scoring, setScoring] = useState<null | { done: number; total: number; unknown: number; note: string }>(null);
+
+  /**
+   * Runs the AI assessment in batches from the browser.
+   *
+   * Deliberately a client-side loop over a small server action rather than one
+   * long server call: 800 companies will not finish inside a serverless
+   * function's execution limit, and each batch is written before the next
+   * starts, so closing the tab loses at most one batch rather than everything.
+   */
+  async function runScoring() {
+    setError(null);
+    try {
+      const start = await countUnscoredVendors(showId);
+      if (!start.configured) {
+        setError("DEEPSEEK_API_KEY isn't set in Vercel, so there's nothing to score with.");
+        return;
+      }
+      if (start.unscored === 0) {
+        setScoring({ done: 0, total: 0, unknown: 0, note: "Every company has already been assessed." });
+        return;
+      }
+      let done = 0, unknown = 0;
+      const total = start.unscored;
+      setScoring({ done, total, unknown, note: "Starting…" });
+      // Bounded: if the server ever stopped making progress this would
+      // otherwise spin forever.
+      for (let guard = 0; guard < 400; guard++) {
+        const r = await scoreNextVendorBatch(showId);
+        if (r.error) { setError(r.error); break; }
+        done += r.scored + r.unknown + r.failed;
+        unknown += r.unknown;
+        setScoring({ done, total, unknown, note: `${done} of ${total} assessed` });
+        if (r.remaining === 0) break;
+        if (r.scored + r.unknown + r.failed === 0) break;
+      }
+      setScoring({ done, total, unknown, note: `Finished — ${done} assessed, ${unknown} not recognised.` });
+      router.refresh();
+    } catch (e: any) {
+      setError(e?.message ?? "Scoring failed.");
+    }
+  }
 
   const stats = useMemo(() => {
     const flagged = items.filter((i) => i.meetingWanted);
@@ -171,6 +222,9 @@ export default function ExhibitorsHub({
             <button className="btn-secondary" onClick={() => setShowAdd((v) => !v)}>
               Add a company
             </button>
+            <button className="btn-secondary" onClick={runScoring} disabled={!!scoring && !scoring.note.startsWith("Finished")}>
+              Assess with AI
+            </button>
             <Link href={`/trade-shows/${showId}/exhibitors/import`} className="btn-primary">
               Import exhibitors
             </Link>
@@ -181,6 +235,25 @@ export default function ExhibitorsHub({
       {error && (
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
+        </div>
+      )}
+
+      {scoring && (
+        <div className="mb-4 rounded-md border border-[#F0DCB0] bg-[#FFF8E7] px-4 py-3 text-sm text-[#7c5c11]">
+          <b>AI assessment</b> — {scoring.note}
+          {scoring.total > 0 && (
+            <div className="mt-2 h-1.5 w-full overflow-hidden rounded bg-[#F0DCB0]">
+              <div
+                className="h-full bg-brand-amber transition-all"
+                style={{ width: `${Math.min(100, Math.round((scoring.done / scoring.total) * 100))}%` }}
+              />
+            </div>
+          )}
+          <p className="mt-2 text-xs">
+            These are a language model&rsquo;s impressions, not research. Anything it doesn&rsquo;t
+            recognise is left blank rather than given a polite number. Treat every score as
+            unverified until someone checks it.
+          </p>
         </div>
       )}
 
@@ -379,6 +452,21 @@ function Row({
               {item.vendor.description}
             </div>
           )}
+          {item.vendor.reputationScore !== null && (
+            <span
+              title={item.vendor.riskSource === "manual" ? "Checked by a person" : "AI-generated, unverified"}
+              className={`mr-2 inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px] font-bold ${
+                item.vendor.reputationScore >= 80
+                  ? "bg-[#E7F3E4] text-brand-greenDark"
+                  : item.vendor.reputationScore >= 60
+                    ? "bg-[#FFF3E0] text-[#B45309]"
+                    : "bg-[#FDE8E8] text-[#B91C1C]"
+              }`}
+            >
+              {item.vendor.reputationScore}
+              {item.vendor.riskSource !== "manual" && <span className="opacity-60">?</span>}
+            </span>
+          )}
           {item.vendor.websiteUrl && (
             <a
               href={item.vendor.websiteUrl}
@@ -483,6 +571,28 @@ function Row({
                     </span>
                   )}
                 </div>
+
+                <label className="label mt-3">
+                  Standing
+                  {item.vendor.riskSource && item.vendor.riskSource !== "manual" && (
+                    <span className="ml-2 normal-case tracking-normal text-brand-amber">
+                      AI-generated · unverified
+                    </span>
+                  )}
+                </label>
+                <ScoreEditor
+                  score={item.vendor.reputationScore}
+                  notes={item.vendor.riskNotes}
+                  source={item.vendor.riskSource}
+                  disabled={!canAnnotate || busy}
+                  onSave={(sc, n) => run(() => setVendorScore(item.vendor.id, sc, n, item.id))}
+                />
+
+                {item.vendor.sector && (
+                  <p className="mt-1.5 text-[11.5px] text-brand-inkFaint">
+                    Listed by the show as: {item.vendor.sector}
+                  </p>
+                )}
 
                 <label className="label mt-3">Website</label>
                 <FieldEditor
@@ -720,6 +830,69 @@ function FieldEditor({
       {multiline ? <textarea rows={3} {...common} /> : <input {...common} />}
       {dirty && !disabled && (
         <div className="mt-1 text-[11px] text-brand-amber">Unsaved &mdash; click away to save.</div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Score + risk note editor.
+ *
+ * Saving here sets riskSource="manual", which is the whole point: it is how a
+ * number somebody actually checked becomes distinguishable from one a model
+ * produced. The "?" on an AI score disappears once a person confirms it.
+ */
+function ScoreEditor({
+  score,
+  notes,
+  source,
+  disabled,
+  onSave,
+}: {
+  score: number | null;
+  notes: string | null;
+  source: string | null;
+  disabled?: boolean;
+  onSave: (score: number | null, notes: string | null) => void;
+}) {
+  const [s, setS] = useState(score === null ? "" : String(score));
+  const [n, setN] = useState(notes ?? "");
+  const dirty = s !== (score === null ? "" : String(score)) || n !== (notes ?? "");
+
+  return (
+    <div>
+      <div className="flex gap-2">
+        <input
+          className="input max-w-[92px]"
+          inputMode="numeric"
+          placeholder="—"
+          value={s}
+          disabled={disabled}
+          onChange={(e) => setS(e.target.value.replace(/[^0-9]/g, "").slice(0, 3))}
+        />
+        <input
+          className="input"
+          placeholder={source ? "" : "Not assessed yet"}
+          value={n}
+          disabled={disabled}
+          onChange={(e) => setN(e.target.value)}
+        />
+      </div>
+      {dirty && !disabled && (
+        <button
+          className="btn-primary mt-1.5 text-xs"
+          onClick={() => {
+            const v = s.trim() === "" ? null : Math.max(0, Math.min(100, Number(s)));
+            onSave(v, n.trim() || null);
+          }}
+        >
+          Save as checked
+        </button>
+      )}
+      {score === null && source && (
+        <p className="mt-1 text-[11.5px] text-brand-inkFaint">
+          Not recognised by the model &mdash; left blank rather than guessed.
+        </p>
       )}
     </div>
   );

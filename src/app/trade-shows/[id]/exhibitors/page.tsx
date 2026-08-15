@@ -85,6 +85,10 @@ export default async function ExhibitorsPage({ params }: { params: Promise<{ id:
       websiteUrl: r.vendor.websiteUrl,
       hqCountry: r.vendor.hqCountry,
       notes: r.vendor.notes,
+      sector: r.vendor.sector,
+      reputationScore: r.vendor.reputationScore,
+      riskNotes: r.vendor.riskNotes,
+      riskSource: r.vendor.riskSource,
       tagIds: r.vendor.tags.map((t) => t.tagId),
       tagNames: r.vendor.tags.map((t) => t.tag.name),
       contacts: r.vendor.contacts.map((c) => ({

@@ -106,14 +106,14 @@ node scripts/make-manifest.js
 
 ---
 
-# This round — 15 August 2026 (b)
+# This round — 15 August 2026 (c)
 
-**Changed:** `prisma/schema.prisma` (5 new Vendor fields + 1 staging field),
-new `src/lib/vendors/categoryMap.ts`, `src/lib/importers/columnMap.ts`,
-`src/lib/exhibitors/importCore.ts`, `prisma/seed.ts`,
-`src/components/TradeShowCard.tsx`, new `scripts/find-duplicate-members.ts`.
+**Changed:** `prisma/schema.prisma` (`todoId` on TradeShowExhibitor),
+new `src/lib/ai/vendorScore.ts`, new `src/lib/exhibitors/meetingTask.ts`,
+`src/lib/exhibitors/actions.ts`, `src/components/ExhibitorsHub.tsx`,
+`src/app/trade-shows/[id]/exhibitors/page.tsx`, new `tests/meetingTask.test.ts`.
 
-**Schema DID change** — `npm run db:push` is required this time.
+**Schema DID change** — `npm run db:push` is required.
 
 ### Full sequence
 
@@ -126,26 +126,23 @@ npm run db:push
 npm run db:seed
 git status
 git add -A
-git commit -m "Add vendor sector/reputation fields, category-to-tag mapping, duplicate-member cleanup; fix seed recreating team members"
+git commit -m "Add AI vendor scoring pass and automatic meeting tasks for the assigned owner"
 git push origin main
 ```
 
-### Then, once deployed
+`npm test` should now report **114** assertions. `npm run test:db` reports **163**.
 
-**1. Clear the duplicate team members** (report first, changes nothing):
+### After deploying
 
-```
-npx tsx scripts/find-duplicate-members.ts
-```
+**Meeting tasks** work automatically from now on. A task appears in someone's
+Tasks list when an exhibitor has all three of: the meeting flag on, an owner
+set, AND at least one linked project. Marking the meeting "Met" ticks the task
+off; un-flagging removes it, unless somebody has commented on it.
 
-Expect 6 duplicates (Ali, Javaid, Mohammad, Shahab, Syed, Yasir) and 9 kept.
-Only if that matches:
+**To run the AI assessment:** Trade Shows → Datacloud USA 2026 → Exhibitors &
+meetings → **Assess with AI**. It works through the list in batches of 12 and
+shows progress. Leave the tab open; if you close it, nothing is lost and
+pressing the button again resumes where it stopped.
 
-```
-npx tsx scripts/find-duplicate-members.ts --delete
-```
-
-**2. Import the Datacloud company list.** Trade Shows → Datacloud USA 2026 →
-Exhibitors & meetings → Import exhibitors → upload
-`datacloud-usa-2026-IMPORT.csv`. All ten columns map automatically. Review, then
-commit.
+Requires `DEEPSEEK_API_KEY` in Vercel. Without it the button reports that
+plainly rather than failing silently.

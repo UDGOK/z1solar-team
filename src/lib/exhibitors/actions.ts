@@ -15,6 +15,7 @@ import { prisma } from "../prisma";
 import { getCurrentMember } from "../auth";
 import { logActivity } from "../activity";
 import { getExhibitorAccess } from "./access";
+import { syncMeetingTask } from "./meetingTask";
 import {
   cleanCompanyName,
   matchKey,
@@ -253,6 +254,15 @@ export async function updateExhibitor(exhibitorId: string, patch: ExhibitorPatch
       }
     }
   });
+
+  // Keep the owner's task in step with the flag. Deliberately after the write
+  // and outside the transaction: a task-sync failure must never roll back the
+  // edit the person actually made.
+  try {
+    await syncMeetingTask(prisma, exhibitorId);
+  } catch (e) {
+    console.error("[exhibitors] meeting task sync failed:", e);
+  }
 
   if (patch.meetingWanted !== undefined && patch.meetingWanted !== row.meetingWanted) {
     await logActivity({
@@ -673,4 +683,142 @@ export async function getImportForReview(importId: string) {
       sourceLine: i.sourceLine,
     })),
   };
+}
+
+// ---------------------------------------------------------------------------
+// AI vendor scoring
+// ---------------------------------------------------------------------------
+
+export type ScoringProgress = {
+  scored: number;
+  unknown: number;
+  failed: number;
+  remaining: number;
+  error: string | null;
+};
+
+/** How many vendors on this show still have no reputation score. */
+export async function countUnscoredVendors(tradeShowId: string) {
+  await requireManage(tradeShowId);
+  const [total, unscored] = await Promise.all([
+    prisma.tradeShowExhibitor.count({ where: { tradeShowId } }),
+    prisma.tradeShowExhibitor.count({
+      where: { tradeShowId, vendor: { reputationScore: null, riskAssessedAt: null } },
+    }),
+  ]);
+  const { isVendorScoringConfigured } = await import("../ai/vendorScore");
+  return { total, unscored, configured: isVendorScoringConfigured() };
+}
+
+/**
+ * Scores one batch of unassessed vendors and writes the results.
+ *
+ * Deliberately batched and driven from the client rather than looping over 800
+ * companies in a single action: a Vercel function has a hard execution limit,
+ * and a run that dies at company 400 with no record of what it did is worse
+ * than no run at all. Each call is small, idempotent and leaves a durable
+ * result, so it resumes simply by being called again.
+ *
+ * Everything written here is marked riskSource="ai" and the UI labels it
+ * unverified. A human editing a score sets riskSource="manual", which is how
+ * a checked number becomes distinguishable from a generated one.
+ */
+export async function scoreNextVendorBatch(tradeShowId: string): Promise<ScoringProgress> {
+  await requireManage(tradeShowId);
+
+  const { scoreVendorBatch, SCORE_BATCH_SIZE, isVendorScoringConfigured } = await import(
+    "../ai/vendorScore"
+  );
+
+  if (!isVendorScoringConfigured()) {
+    return {
+      scored: 0, unknown: 0, failed: 0, remaining: 0,
+      error: "DEEPSEEK_API_KEY isn't set in Vercel, so there's nothing to score with.",
+    };
+  }
+
+  const rows = await prisma.tradeShowExhibitor.findMany({
+    where: { tradeShowId, vendor: { reputationScore: null, riskAssessedAt: null } },
+    include: {
+      vendor: {
+        select: { id: true, name: true, description: true, sector: true, hqCountry: true },
+      },
+    },
+    take: SCORE_BATCH_SIZE,
+  });
+
+  if (rows.length === 0) {
+    return { scored: 0, unknown: 0, failed: 0, remaining: 0, error: null };
+  }
+
+  const { scores, error } = await scoreVendorBatch(rows.map((r) => r.vendor));
+
+  if (error) {
+    const remaining = await prisma.tradeShowExhibitor.count({
+      where: { tradeShowId, vendor: { reputationScore: null, riskAssessedAt: null } },
+    });
+    return { scored: 0, unknown: 0, failed: rows.length, remaining, error };
+  }
+
+  const now = new Date();
+  let scored = 0;
+  let unknown = 0;
+
+  for (const s of scores) {
+    // riskAssessedAt is stamped even when the score is null, so an unrecognised
+    // company counts as "we asked" and is not retried forever.
+    await prisma.vendor.update({
+      where: { id: s.id },
+      data: {
+        reputationScore: s.score,
+        riskNotes: s.notes,
+        riskSource: "ai",
+        riskAssessedAt: now,
+      },
+    });
+    if (s.score === null) unknown++;
+    else scored++;
+  }
+
+  // Anything the model silently omitted still gets stamped, or the run loops
+  // on the same rows forever.
+  const answered = new Set(scores.map((s) => s.id));
+  const skipped = rows.map((r) => r.vendor.id).filter((id) => !answered.has(id));
+  if (skipped.length > 0) {
+    await prisma.vendor.updateMany({
+      where: { id: { in: skipped } },
+      data: { riskSource: "ai", riskAssessedAt: now, riskNotes: null },
+    });
+  }
+
+  const remaining = await prisma.tradeShowExhibitor.count({
+    where: { tradeShowId, vendor: { reputationScore: null, riskAssessedAt: null } },
+  });
+
+  refresh(tradeShowId);
+  return { scored, unknown, failed: skipped.length, remaining, error: null };
+}
+
+/** A human overriding a score — this is what makes it verified. */
+export async function setVendorScore(
+  vendorId: string,
+  score: number | null,
+  notes: string | null,
+  fromTradeShowId?: string
+) {
+  const me = await requireMember();
+  if (score !== null && (!Number.isFinite(score) || score < 0 || score > 100)) {
+    throw new Error("Score must be between 0 and 100.");
+  }
+  await prisma.vendor.update({
+    where: { id: vendorId },
+    data: {
+      reputationScore: score,
+      riskNotes: notes?.trim() || null,
+      riskSource: "manual",
+      riskAssessedAt: new Date(),
+      riskAssessedById: me.id,
+    },
+  });
+  if (fromTradeShowId) refresh(fromTradeShowId);
 }

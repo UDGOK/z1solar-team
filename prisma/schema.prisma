@@ -1172,6 +1172,11 @@ model TradeShowExhibitor {
   // What actually happened, filled in after.
   outcome String?
 
+  // The task created for whoever is chasing this meeting, so it shows up in
+  // their own Tasks list. Nullable: a task only exists once the meeting is
+  // flagged AND has an owner AND a linked project (Todo.projectId is required).
+  todoId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
