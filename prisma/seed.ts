@@ -169,14 +169,39 @@ const PROJECTS: {
 ];
 
 async function main() {
-  console.log("Seeding team members…");
+  // Bootstrap the team ONLY on an empty database.
+  //
+  // This used to run every time, matching on exact name. Once someone was
+  // renamed in the app — "Yasir" to "Yasir Jahangir" — the lookup stopped
+  // finding them and the seed helpfully created a fresh, empty "Yasir". Every
+  // deploy that ran the seed added another round of nameless duplicates with no
+  // email, no phone and no way to sign in, sitting alongside the real people.
+  //
+  // The team is real data now, maintained in the app. It is not seed data, and
+  // the seed has no business recreating it.
+  const teamCount = await prisma.teamMember.count();
   const memberByName = new Map<string, string>();
-  for (const t of TEAM) {
-    const existing = await prisma.teamMember.findFirst({ where: { name: t.name } });
-    const member =
-      existing ||
-      (await prisma.teamMember.create({ data: { name: t.name, title: t.title || undefined } }));
-    memberByName.set(t.name, member.id);
+
+  if (teamCount === 0) {
+    console.log("Seeding team members (empty database)…");
+    for (const t of TEAM) {
+      const member = await prisma.teamMember.create({
+        data: { name: t.name, title: t.title || undefined },
+      });
+      memberByName.set(t.name, member.id);
+    }
+  } else {
+    console.log(`Team already has ${teamCount} member(s) — leaving it alone.`);
+    // Still needed to resolve project leads below. Matched loosely so a renamed
+    // person ("Yasir" -> "Yasir Jahangir") still resolves instead of being
+    // treated as missing.
+    const all = await prisma.teamMember.findMany({ select: { id: true, name: true } });
+    for (const t of TEAM) {
+      const hit =
+        all.find((m) => m.name.toLowerCase() === t.name.toLowerCase()) ??
+        all.find((m) => m.name.toLowerCase().startsWith(t.name.toLowerCase() + " "));
+      if (hit) memberByName.set(t.name, hit.id);
+    }
   }
 
   console.log("Seeding settings (org name)…");

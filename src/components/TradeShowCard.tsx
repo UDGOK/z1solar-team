@@ -294,6 +294,17 @@ export default function TradeShowCard({
         )}
 
         {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+
+        {/* Deliberately OUTSIDE the "Details" collapse. This is the entry point
+            to the whole exhibitor module, and buried behind a disclosure
+            triangle it may as well not exist — which is exactly what happened
+            the first time it was added. */}
+        <a
+          href={`/trade-shows/${show.id}/exhibitors`}
+          className="btn-secondary text-xs mt-3 inline-flex"
+        >
+          Exhibitors &amp; meetings &rarr;
+        </a>
       </div>
 
       {open && (
@@ -313,14 +324,6 @@ export default function TradeShowCard({
             {show.estimatedCost > 0 && (
               <Detail label="Est. cost" value={`$${Math.round(show.estimatedCost).toLocaleString("en-US")}`} />
             )}
-          </div>
-
-          {/* Always shown, even before any exhibitors exist — the empty state on
-              the other side explains how to import a list, so this is the way in. */}
-          <div className="flex gap-2 flex-wrap">
-            <a href={`/trade-shows/${show.id}/exhibitors`} className="btn-secondary text-xs">
-              Exhibitors &amp; meetings &rarr;
-            </a>
           </div>
 
           {(show.websiteUrl || show.registrationUrl) && (
