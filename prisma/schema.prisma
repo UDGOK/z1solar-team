@@ -33,6 +33,10 @@ model TeamMember {
   access      ProjectAccess[]
   assignedTodos Todo[]        @relation("TodoAssignee")
   todoAssignments TodoAssignee[]
+  todosCompleted  Todo[]        @relation("TodoCompletedBy")
+  todosConfirmed  Todo[]        @relation("TodoConfirmedBy")
+  todoComments    TodoComment[]
+  meetingImports  MeetingImport[] @relation("ImportedBy")
   meetingsOrganized Meeting[]        @relation("MeetingOrganizer")
   meetingAttendance MeetingAttendee[]
   agendaOwned       MeetingAgendaItem[] @relation("AgendaOwner")
@@ -48,6 +52,11 @@ model TeamMember {
   canManageTradeShows Boolean @default(false)
   // Presence. Updated on page loads, throttled so it isn't a write per request.
   lastSeenAt          DateTime?
+  // SMS. optedOut is set automatically when someone texts STOP — US law
+  // requires we honour it immediately and never message them again.
+  smsEnabled          Boolean   @default(true)
+  smsOptedOut         Boolean   @default(false)
+  smsMessages         SmsMessage[] @relation("SmsMember")
   messageReceipts  MessageRecipient[]
   subscriptions ReportSubscription[]
   emailOnTaskAssigned Boolean @default(true)
@@ -99,6 +108,8 @@ model Project {
   lineItems    FinancialLineItem[]
   subscriptions ReportSubscription[]
   meetings     Meeting[]
+  smsMessages  SmsMessage[]
+  meetingImports MeetingImport[]
 
   // financials
   estBudget    Float           @default(0)
@@ -186,6 +197,26 @@ model Todo {
   assigneeId  String?
   assignee    TeamMember? @relation("TodoAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   assignees   TodoAssignee[]
+
+  // Completion is two-stage when it came out of a meeting: the assignee marks
+  // it done, then the project lead confirms. Without that second step "done"
+  // is just one person's claim, which is exactly what weekly meetings exist to
+  // check.
+  requiresConfirmation Boolean @default(false)
+  completedById String?
+  completedBy   TeamMember? @relation("TodoCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  completedAt   DateTime?
+  confirmedById String?
+  confirmedBy   TeamMember? @relation("TodoConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
+  confirmedAt   DateTime?
+  // Set when a lead rejects a completion, with the reason in the thread.
+  reopenedAt    DateTime?
+
+  comments      TodoComment[]
+  meetingImportItemId String?
+
+  sourceMeetingId String?
+  sourceMeeting   Meeting? @relation("MeetingTasks", fields: [sourceMeetingId], references: [id], onDelete: SetNull)
   dueDate     DateTime?
   createdById String?
   createdBy   TeamMember? @relation("TodoCreator", fields: [createdById], references: [id], onDelete: SetNull)
@@ -493,6 +524,9 @@ model Role {
   canManageResources   Boolean @default(false)
   canViewResources     Boolean @default(true)
   canManageCategories  Boolean @default(false)
+  canViewSms           Boolean @default(false)
+  canSendSms           Boolean @default(false)
+  canManageSmsContacts Boolean @default(false)
 
   // --- Defaults applied when this person is granted a project ---
   defaultCanEditTalkingPoints Boolean @default(true)
@@ -567,6 +601,8 @@ model Meeting {
   project     Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
   agendaItems MeetingAgendaItem[]
+  imports     MeetingImport[]
+  tasks       Todo[]           @relation("MeetingTasks")
   attendees   MeetingAttendee[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -636,6 +672,141 @@ model Resource {
   updatedAt   DateTime @updatedAt
 
   @@index([categoryId])
+}
+
+// Approved external numbers (subcontractors, vendors, inspectors). Anything
+// texting in from a number that is NOT a team member and NOT on this list is
+// rejected — an open inbox would mean spam and cost with no upside.
+model SmsContact {
+  id          String   @id @default(cuid())
+  phone       String   @unique
+  name        String
+  company     String?
+  notes       String?
+  active      Boolean  @default(true)
+  optedOut    Boolean  @default(false)
+  // Optional scoping: if set, this contact may only file messages against
+  // these projects. Empty means any project.
+  projectIds  String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  messages    SmsMessage[] @relation("SmsContact")
+
+  @@index([phone])
+}
+
+// Every inbound and outbound message. Idempotent on twilioSid because Twilio
+// retries a webhook it thinks failed, which would otherwise duplicate rows.
+model SmsMessage {
+  id          String   @id @default(cuid())
+  twilioSid   String?  @unique
+  direction   String   // IN | OUT
+  fromNumber  String
+  toNumber    String
+  body        String
+  status      String   @default("received") // received | queued | sent | delivered | failed
+  errorText   String?
+
+  projectId   String?
+  project     Project?    @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  memberId    String?
+  member      TeamMember? @relation("SmsMember", fields: [memberId], references: [id], onDelete: SetNull)
+  contactId   String?
+  contact     SmsContact? @relation("SmsContact", fields: [contactId], references: [id], onDelete: SetNull)
+
+  // How the project was determined — useful when a message lands somewhere
+  // unexpected and you need to know why.
+  routedBy    String?  // keyword | session | reply | manual | outbound
+  mediaCount  Int      @default(0)
+  handled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([projectId])
+  @@index([createdAt])
+}
+
+// Remembers which project a number is currently talking about, so follow-up
+// texts don't each need a prefix.
+model SmsSession {
+  id         String   @id @default(cuid())
+  phone      String   @unique
+  projectId  String?
+  // Set when we've asked "which project?" so a bare digit reply can be
+  // interpreted, along with the message we're still holding.
+  pendingChoices String?
+  pendingBody    String?
+  lastTaskId String?
+  expiresAt  DateTime
+  updatedAt  DateTime @updatedAt
+}
+
+// A conversation on a task. This is what lets a project lead push back on a
+// completion, and the assignee respond, without losing the history.
+model TodoComment {
+  id        String   @id @default(cuid())
+  todoId    String
+  todo      Todo     @relation(fields: [todoId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    TeamMember? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  authorName String
+  body      String
+  // Marks the system-generated entries ("marked done", "confirmed") so the
+  // thread reads as a timeline rather than just chat.
+  kind      String   @default("COMMENT") // COMMENT | COMPLETED | CONFIRMED | REOPENED
+  createdAt DateTime @default(now())
+
+  @@index([todoId])
+}
+
+// A pasted transcript or set of notes, plus what we extracted from it.
+// Deliberately kept as a draft until a human accepts the items — auto-creating
+// tasks from a misread line is worse than not extracting at all.
+model MeetingImport {
+  id           String   @id @default(cuid())
+  meetingId    String?
+  meeting      Meeting? @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  projectId    String?
+  project      Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  title        String
+  rawText      String
+  source       String   @default("PASTE") // PASTE | TRANSCRIPT
+  status       String   @default("DRAFT") // DRAFT | APPLIED
+  importedById String?
+  importedBy   TeamMember? @relation("ImportedBy", fields: [importedById], references: [id], onDelete: SetNull)
+  appliedAt    DateTime?
+  // Written by the AI pass when configured. Null just means rules-only, which
+  // is a perfectly valid state — never an error.
+  aiSummary    String?
+  aiDecisions  String?
+  aiUsed       Boolean  @default(false)
+  aiError      String?
+  createdAt    DateTime @default(now())
+
+  items        MeetingImportItem[]
+}
+
+model MeetingImportItem {
+  id            String   @id @default(cuid())
+  importId      String
+  import        MeetingImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  text          String
+  // Everything below is a SUGGESTION shown for review, never applied blind.
+  suggestedAssigneeIds String?
+  suggestedDueDate     DateTime?
+  matchedNames  String?
+  // Why we thought this was an action item — shown in review so a wrong
+  // extraction is obvious rather than mysterious.
+  reason        String?
+  confidence    String   @default("medium") // high | medium | low
+  sourceLine    Int      @default(0)
+
+  accepted      Boolean  @default(true)
+  // "rules" or "ai" — shown in review so a reviewer knows what found it.
+  origin        String   @default("rules")
+  createdTodoId String?
+  order         Int      @default(0)
 }
 
 model Settings {

@@ -12,7 +12,15 @@ export async function loadProjectForPdf(projectId: string): Promise<PdfProject |
       members: { include: { member: true } },
       talkingPoints: { orderBy: { order: "asc" } },
       keyDates: { orderBy: { order: "asc" } },
-      todos: { orderBy: { order: "asc" } },
+      todos: {
+        orderBy: { order: "asc" },
+        include: {
+          assignees: { include: { member: { select: { name: true } } } },
+          completedBy: { select: { name: true } },
+          confirmedBy: { select: { name: true } },
+          sourceMeeting: { select: { title: true } },
+        },
+      },
     },
   });
   if (!project) return null;

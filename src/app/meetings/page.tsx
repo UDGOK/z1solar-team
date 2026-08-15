@@ -5,6 +5,7 @@ import { getGlobalCapabilities, getViewableProjectIds } from "@/lib/permissions"
 import { PAGE_CONTAINER } from "@/lib/layout";
 import AppShell from "@/components/AppShell";
 import MeetingsHub from "@/components/MeetingsHub";
+import MeetingImportPanel, { type ImportRecord } from "@/components/MeetingImportPanel";
 import type { MeetingItem } from "@/components/MeetingCard";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +18,7 @@ export default async function MeetingsPage() {
   if (!isAdmin && !caps.canViewMeetings) notFound();
 
   const viewableIds = await getViewableProjectIds(me);
-  const [meetings, teamMembers, projects] = await Promise.all([
+  const [meetings, teamMembers, projects, imports] = await Promise.all([
     prisma.meeting.findMany({
       include: {
         organizer: { select: { name: true } },
@@ -32,6 +33,11 @@ export default async function MeetingsPage() {
       where: { archived: false, id: { in: viewableIds } },
       orderBy: { title: "asc" },
       select: { id: true, title: true },
+    }),
+    prisma.meetingImport.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      include: { items: { orderBy: { order: "asc" } }, project: { select: { title: true } } },
     }),
   ]);
 
@@ -61,6 +67,32 @@ export default async function MeetingsPage() {
     noteRights[m.id] = isAdmin || caps.canTakeMeetingNotes || m.organizerId === me.id || !!attendee?.canEditNotes;
   }
 
+  const importRecords: ImportRecord[] = imports.map((i) => ({
+    id: i.id,
+    title: i.title,
+    status: i.status,
+    projectId: i.projectId,
+    projectTitle: i.project?.title ?? null,
+    createdAt: i.createdAt.toISOString(),
+    itemCount: i.items.length,
+    aiSummary: i.aiSummary,
+    aiDecisions: i.aiDecisions ? i.aiDecisions.split("\n").filter(Boolean) : [],
+    aiUsed: i.aiUsed,
+    aiError: i.aiError,
+    items: i.items.map((it) => ({
+      id: it.id,
+      text: it.text,
+      suggestedAssigneeIds: (it.suggestedAssigneeIds ?? "").split(",").filter(Boolean),
+      suggestedDueDate: it.suggestedDueDate ? it.suggestedDueDate.toISOString() : null,
+      matchedNames: it.matchedNames,
+      reason: it.reason,
+      confidence: it.confidence,
+      accepted: it.accepted,
+      origin: it.origin,
+      createdTodoId: it.createdTodoId,
+    })),
+  }));
+
   return (
     <AppShell active="/meetings">
       <main className={PAGE_CONTAINER}>
@@ -69,6 +101,14 @@ export default async function MeetingsPage() {
           <h1 className="font-heading font-extrabold text-[20px] sm:text-[22px] text-brand-ink tracking-tight mt-0.5">Meetings</h1>
           <p className="text-[11px] text-brand-inkSoft mt-0.5">Agendas before, notes after, and who&rsquo;s attending.</p>
         </div>
+        <div className="mb-6">
+          <MeetingImportPanel
+            imports={importRecords}
+            teamMembers={teamMembers}
+            projects={projects}
+          />
+        </div>
+
         <MeetingsHub
           meetings={items}
           teamMembers={teamMembers}

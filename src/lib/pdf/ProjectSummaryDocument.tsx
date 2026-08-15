@@ -80,10 +80,11 @@ const s = StyleSheet.create({
   dateCell: { width: 60, fontSize: 7.5, fontFamily: "Poppins", fontWeight: 700, color: INK_FAINT },
   milestoneCell: { flex: 1, fontSize: 8.5, color: INK_SOFT },
 
-  todoRow: { flexDirection: "row", alignItems: "flex-start", marginBottom: 4 },
+  todoRow: { flexDirection: "row", alignItems: "flex-start", marginBottom: 6 },
   checkbox: { width: 9, height: 9, borderWidth: 1, borderColor: GREEN_DARK, borderRadius: 2, marginRight: 6, marginTop: 1 },
   checkboxDone: { backgroundColor: GREEN },
-  todoText: { flex: 1, fontSize: 8.5, color: INK_SOFT, lineHeight: 1.3 },
+  todoText: { fontSize: 8.5, color: INK_SOFT, lineHeight: 1.3 },
+  todoMeta: { fontSize: 6.5, color: "#8A8A85", fontFamily: "Poppins", marginTop: 1.5, lineHeight: 1.2 },
   todoDone: { textDecoration: "line-through", color: INK_FAINT },
 
   finBox: { backgroundColor: GREEN_TINT, borderRadius: 6, padding: 14, marginTop: 4 },
@@ -166,7 +167,17 @@ export type PdfProject = {
   members: { member: { name: string; title: string | null }; role: string | null; tasks: string | null }[];
   talkingPoints: { text: string }[];
   keyDates: { milestone: string; date: Date | string | null }[];
-  todos: { text: string; done: boolean }[];
+  todos: {
+    text: string;
+    done: boolean;
+    assigneeNames?: string[];
+    dueDate?: Date | string | null;
+    completedByName?: string | null;
+    confirmedByName?: string | null;
+    confirmedAt?: Date | string | null;
+    requiresConfirmation?: boolean;
+    fromMeeting?: string | null;
+  }[];
   estBudget: number;
   committed: number;
   actualSpend: number;
@@ -262,12 +273,30 @@ export function ProjectSummaryDocument({ project, generatedAt }: { project: PdfP
               TO-DO {openTodos > 0 ? `(${openTodos} OPEN)` : project.todos.length > 0 ? "(ALL COMPLETE)" : ""}
             </Text>
             {project.todos.length === 0 && <Text style={s.bulletText}>No action items.</Text>}
-            {project.todos.map((t, i) => (
-              <View key={i} style={s.todoRow}>
-                <View style={[s.checkbox, t.done ? s.checkboxDone : {}]} />
-                <Text style={[s.todoText, t.done ? s.todoDone : {}]}>{t.text}</Text>
-              </View>
-            ))}
+            {project.todos.map((t, i) => {
+              // A meeting-derived task that's marked done but not yet signed
+              // off is materially different from one that is — the PDF has to
+              // show that distinction or it misrepresents progress.
+              const awaiting = t.done && t.requiresConfirmation && !t.confirmedAt;
+              const meta: string[] = [];
+              if (t.assigneeNames?.length) meta.push(t.assigneeNames.join(", "));
+              if (t.dueDate) {
+                meta.push(
+                  `due ${new Date(t.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+                );
+              }
+              if (t.confirmedByName) meta.push(`confirmed by ${t.confirmedByName}`);
+              else if (awaiting) meta.push(`done by ${t.completedByName ?? "—"}, awaiting sign-off`);
+              return (
+                <View key={i} style={s.todoRow}>
+                  <View style={[s.checkbox, t.done ? s.checkboxDone : {}]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[s.todoText, t.confirmedAt ? s.todoDone : {}]}>{t.text}</Text>
+                    {meta.length > 0 && <Text style={s.todoMeta}>{meta.join(" · ")}</Text>}
+                  </View>
+                </View>
+              );
+            })}
           </View>
         </View>
 

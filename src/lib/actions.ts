@@ -1728,6 +1728,9 @@ export type RoleInput = {
   canTakeMeetingNotes: boolean;
   canViewResources: boolean;
   canManageResources: boolean;
+  canViewSms: boolean;
+  canSendSms: boolean;
+  canManageSmsContacts: boolean;
   defaultCanEditTalkingPoints: boolean;
   defaultCanEditKeyDates: boolean;
   defaultCanEditTodos: boolean;
@@ -1778,6 +1781,9 @@ export async function saveRole(id: string | null, data: RoleInput) {
     canTakeMeetingNotes: !!data.canTakeMeetingNotes,
     canViewResources: !!data.canViewResources,
     canManageResources: !!data.canManageResources,
+    canViewSms: !!data.canViewSms,
+    canSendSms: !!data.canSendSms,
+    canManageSmsContacts: !!data.canManageSmsContacts,
     defaultCanEditTalkingPoints: !!data.defaultCanEditTalkingPoints,
     defaultCanEditKeyDates: !!data.defaultCanEditKeyDates,
     defaultCanEditTodos: !!data.defaultCanEditTodos,
@@ -2330,5 +2336,477 @@ export async function deleteResource(id: string) {
   await requireResourceManager();
   await prisma.resource.delete({ where: { id } });
   revalidatePath("/resources");
+  return { ok: true };
+}
+
+// ---------- SMS ----------
+
+async function requireSmsSender() {
+  const me = await requireAuth();
+  if (me.role === "ADMIN") return me;
+  const { getGlobalCapabilities } = await import("./permissions");
+  const caps = await getGlobalCapabilities(me);
+  if (!caps.canSendSms) throw new Error("You don't have permission to send text messages.");
+  return me;
+}
+
+async function requireSmsContactManager() {
+  const me = await requireAuth();
+  if (me.role === "ADMIN") return me;
+  const { getGlobalCapabilities } = await import("./permissions");
+  const caps = await getGlobalCapabilities(me);
+  if (!caps.canManageSmsContacts) throw new Error("You don't have permission to manage SMS contacts.");
+  return me;
+}
+
+/** Approve an outside number (sub, vendor, inspector) to text in. */
+export async function saveSmsContact(
+  id: string | null,
+  data: { phone: string; name: string; company?: string; notes?: string; active: boolean; projectIds?: string[] }
+) {
+  const me = await requireSmsContactManager();
+  const { normalizePhone } = await import("./sms/twilio");
+  const phone = normalizePhone(data.phone);
+  if (!phone) throw new Error("Enter a valid phone number.");
+  if (!data.name?.trim()) throw new Error("Name is required.");
+
+  const clash = await prisma.smsContact.findFirst({
+    where: { phone, ...(id ? { NOT: { id } } : {}) },
+  });
+  if (clash) throw new Error(`${clash.name} is already approved with that number.`);
+
+  const payload = {
+    phone,
+    name: data.name.trim(),
+    company: data.company?.trim() || null,
+    notes: data.notes?.trim() || null,
+    active: data.active,
+    projectIds: data.projectIds?.length ? data.projectIds.join(",") : null,
+  };
+
+  if (id) await prisma.smsContact.update({ where: { id }, data: payload });
+  else await prisma.smsContact.create({ data: { ...payload, createdById: me.id } });
+
+  revalidatePath("/sms");
+  return { ok: true };
+}
+
+export async function deleteSmsContact(id: string) {
+  await requireSmsContactManager();
+  await prisma.smsContact.delete({ where: { id } });
+  revalidatePath("/sms");
+  return { ok: true };
+}
+
+/** Send a text from inside the app, optionally tied to a project. */
+export async function sendProjectSms(data: { to: string; body: string; projectId?: string | null }) {
+  const me = await requireSmsSender();
+  if (!data.body?.trim()) throw new Error("Message can't be empty.");
+
+  if (data.projectId) {
+    const perms = await getProjectPermissions(me, data.projectId);
+    if (!perms.canView) throw new Error("You don't have access to that project.");
+  }
+
+  const { sendSms } = await import("./sms/send");
+  const { normalizePhone } = await import("./sms/twilio");
+  const to = normalizePhone(data.to);
+  if (!to) throw new Error("Enter a valid phone number.");
+
+  const member = await prisma.teamMember.findFirst({ where: { phone: { not: null } } });
+  const members = await prisma.teamMember.findMany({ select: { id: true, phone: true } });
+  const matched = members.find((m) => normalizePhone(m.phone) === to);
+
+  const res = await sendSms({
+    to,
+    body: data.body.trim(),
+    projectId: data.projectId ?? null,
+    memberId: matched?.id ?? null,
+  });
+
+  if (!res.ok) throw new Error(res.skipped || res.error || "Couldn't send the message.");
+
+  revalidatePath("/sms");
+  if (data.projectId) revalidatePath(`/projects/${data.projectId}`);
+  return { ok: true };
+}
+
+/** File an unrouted message against a project after the fact. */
+export async function assignSmsToProject(smsId: string, projectId: string) {
+  const me = await requireAuth();
+  const perms = await getProjectPermissions(me, projectId);
+  if (!perms.canView) throw new Error("You don't have access to that project.");
+
+  const msg = await prisma.smsMessage.update({
+    where: { id: smsId },
+    data: { projectId, routedBy: "manual", handled: true },
+  });
+
+  // Open a session so their follow-up texts route themselves.
+  const { openSession } = await import("./sms/router");
+  if (msg.direction === "IN") await openSession(msg.fromNumber, projectId);
+
+  revalidatePath("/sms");
+  revalidatePath(`/projects/${projectId}`);
+  return { ok: true };
+}
+
+// ---------- Meeting import -> tasks ----------
+
+/** Parse pasted notes into review-ready suggestions. Creates nothing yet. */
+export async function createMeetingImport(data: {
+  title: string;
+  rawText: string;
+  projectId?: string | null;
+  meetingId?: string | null;
+  source?: string;
+}) {
+  const me = await requireAuth();
+  if (!data.rawText?.trim()) throw new Error("Paste the meeting notes first.");
+  if (data.projectId) {
+    const perms = await getProjectPermissions(me, data.projectId);
+    if (!perms.canEditTodos) throw new Error("You can't create tasks on that project.");
+  }
+
+  const roster = await prisma.teamMember.findMany({ select: { id: true, name: true } });
+  const { extractActionItems, namesToIds, extractDueDate } = await import("./meetingExtract");
+
+  // Rules run first and always succeed — this is the floor.
+  const ruleItems = extractActionItems(data.rawText, roster);
+
+  // AI is an enhancement layered on top. Any failure returns null and we keep
+  // the rule-based result, so a slow or broken API never blocks an import.
+  const { aiExtract, mergeExtractions, isAiConfigured } = await import("./ai/deepseek");
+  let ai = null;
+  let aiError: string | null = null;
+  if (isAiConfigured()) {
+    try {
+      ai = await aiExtract(data.rawText, roster);
+      if (!ai) aiError = "AI didn't return usable results — showing rule-based items only.";
+    } catch (e: any) {
+      aiError = "AI extraction failed — showing rule-based items only.";
+      console.error("[import] ai step failed:", e);
+    }
+  }
+
+  const ruleKeys = new Set(ruleItems.map((r) => r.text));
+  const found = mergeExtractions(ruleItems, ai, roster, (t) => extractDueDate(t));
+
+  const imp = await prisma.meetingImport.create({
+    data: {
+      title: data.title?.trim() || "Meeting notes",
+      rawText: data.rawText,
+      projectId: data.projectId || null,
+      meetingId: data.meetingId || null,
+      source: data.source === "TRANSCRIPT" ? "TRANSCRIPT" : "PASTE",
+      importedById: me.id,
+      aiSummary: ai?.summary ?? null,
+      aiDecisions: ai?.decisions.length ? ai.decisions.join("\n") : null,
+      aiUsed: !!ai,
+      aiError,
+      items: {
+        create: found.map((f, order) => ({
+          text: f.text,
+          suggestedAssigneeIds: namesToIds(f.matchedNames, roster).join(",") || null,
+          suggestedDueDate: f.dueDate,
+          matchedNames: f.matchedNames.join(", ") || null,
+          reason: f.reason,
+          confidence: f.confidence,
+          sourceLine: f.sourceLine,
+          origin: ruleKeys.has(f.text) ? "rules" : "ai",
+          order,
+          // Low-confidence items start unticked so nothing questionable gets
+          // created by someone clicking straight through.
+          accepted: f.confidence !== "low",
+        })),
+      },
+    },
+    include: { items: true },
+  });
+
+  revalidatePath("/meetings");
+  return { ok: true, id: imp.id, found: found.length };
+}
+
+export async function updateImportItem(
+  itemId: string,
+  data: { text?: string; assigneeIds?: string[]; dueDate?: string | null; accepted?: boolean }
+) {
+  await requireAuth();
+  await prisma.meetingImportItem.update({
+    where: { id: itemId },
+    data: {
+      ...(data.text !== undefined ? { text: data.text.trim() } : {}),
+      ...(data.assigneeIds !== undefined
+        ? { suggestedAssigneeIds: data.assigneeIds.filter(Boolean).join(",") || null }
+        : {}),
+      ...(data.dueDate !== undefined
+        ? { suggestedDueDate: data.dueDate ? new Date(data.dueDate) : null }
+        : {}),
+      ...(data.accepted !== undefined ? { accepted: data.accepted } : {}),
+    },
+  });
+  revalidatePath("/meetings");
+  return { ok: true };
+}
+
+/** Turn the accepted suggestions into real tasks. This is the only step that writes tasks. */
+export async function applyMeetingImport(importId: string, projectId: string) {
+  const me = await requireAuth();
+  const perms = await getProjectPermissions(me, projectId);
+  if (!perms.canEditTodos) throw new Error("You can't create tasks on that project.");
+
+  const imp = await prisma.meetingImport.findUnique({
+    where: { id: importId },
+    include: { items: { orderBy: { order: "asc" } } },
+  });
+  if (!imp) throw new Error("Import not found.");
+  if (imp.status === "APPLIED") throw new Error("These notes have already been turned into tasks.");
+
+  const accepted = imp.items.filter((i) => i.accepted && i.text.trim());
+  if (!accepted.length) throw new Error("Nothing is ticked to create.");
+
+  const project = await prisma.project.findUnique({ where: { id: projectId }, select: { title: true } });
+  const maxOrder = await prisma.todo.aggregate({ where: { projectId }, _max: { order: true } });
+  let order = (maxOrder._max.order ?? -1) + 1;
+  const created: { id: string; text: string; assignees: string[] }[] = [];
+
+  for (const item of accepted) {
+    const assigneeIds = (item.suggestedAssigneeIds ?? "").split(",").filter(Boolean);
+    const todo = await prisma.todo.create({
+      data: {
+        projectId,
+        text: item.text.trim(),
+        dueDate: item.suggestedDueDate,
+        createdById: me.id,
+        order: order++,
+        // Meeting-derived tasks need the lead to confirm completion — that's
+        // the whole point of tracking them out of a meeting.
+        requiresConfirmation: true,
+        sourceMeetingId: imp.meetingId,
+        meetingImportItemId: item.id,
+        assignees: { create: assigneeIds.map((memberId) => ({ memberId })) },
+      },
+    });
+    await prisma.meetingImportItem.update({ where: { id: item.id }, data: { createdTodoId: todo.id } });
+    created.push({ id: todo.id, text: todo.text, assignees: assigneeIds });
+
+    await prisma.todoComment.create({
+      data: {
+        todoId: todo.id,
+        authorId: me.id,
+        authorName: me.name,
+        kind: "COMMENT",
+        body: `Created from "${imp.title}".`,
+      },
+    });
+
+    if (assigneeIds.length) {
+      await prisma.notification.createMany({
+        data: assigneeIds
+          .filter((id) => id !== me.id)
+          .map((recipientId) => ({
+            recipientId,
+            type: "TASK_ASSIGNED",
+            title: `From ${imp.title}`,
+            body: `${todo.text} — ${project?.title ?? ""}`,
+            link: "/tasks",
+          })),
+      });
+      const { notifyBySms } = await import("./sms/send");
+      for (const id of assigneeIds) {
+        if (id === me.id) continue;
+        void notifyBySms(
+          id,
+          `New task from ${imp.title}: ${todo.text}${todo.dueDate ? ` (due ${todo.dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })})` : ""}`,
+          projectId
+        );
+      }
+    }
+  }
+
+  await prisma.meetingImport.update({
+    where: { id: importId },
+    data: { status: "APPLIED", appliedAt: new Date(), projectId },
+  });
+
+  await logActivity({
+    projectId,
+    actor: me,
+    action: "task.created",
+    summary: `Created ${created.length} task(s) from "${imp.title}"`,
+    meta: { importId },
+  });
+
+  revalidatePath("/meetings");
+  revalidatePath("/tasks");
+  revalidatePath(`/projects/${projectId}`);
+  return { ok: true, created: created.length };
+}
+
+export async function deleteMeetingImport(id: string) {
+  const me = await requireAuth();
+  const imp = await prisma.meetingImport.findUnique({ where: { id } });
+  if (!imp) throw new Error("Import not found.");
+  if (imp.importedById !== me.id && me.role !== "ADMIN") {
+    throw new Error("Only the person who imported these notes, or an admin, can remove them.");
+  }
+  await prisma.meetingImport.delete({ where: { id } });
+  revalidatePath("/meetings");
+  return { ok: true };
+}
+
+// ---------- Task threads & completion confirmation ----------
+
+export async function addTodoComment(todoId: string, body: string) {
+  const me = await requireAuth();
+  if (!body?.trim()) throw new Error("Write something first.");
+
+  const todo = await prisma.todo.findUnique({
+    where: { id: todoId },
+    include: { project: { select: { id: true, title: true, leadId: true } }, assignees: true },
+  });
+  if (!todo) throw new Error("Task not found.");
+
+  const perms = await getProjectPermissions(me, todo.projectId);
+  const isAssignee = todo.assignees.some((a) => a.memberId === me.id);
+  if (!perms.canView && !isAssignee) throw new Error("You don't have access to this task.");
+
+  await prisma.todoComment.create({
+    data: { todoId, authorId: me.id, authorName: me.name, body: body.trim(), kind: "COMMENT" },
+  });
+
+  // Notify everyone already in the conversation — assignees, the project lead,
+  // and anyone who has commented — except whoever just wrote it.
+  const priorAuthors = await prisma.todoComment.findMany({
+    where: { todoId, authorId: { not: null } },
+    select: { authorId: true },
+    distinct: ["authorId"],
+  });
+  const audience = new Set<string>([
+    ...todo.assignees.map((a) => a.memberId),
+    ...(todo.project.leadId ? [todo.project.leadId] : []),
+    ...priorAuthors.map((p) => p.authorId!).filter(Boolean),
+  ]);
+  audience.delete(me.id);
+
+  if (audience.size) {
+    await prisma.notification.createMany({
+      data: Array.from(audience).map((recipientId) => ({
+        recipientId,
+        type: "GENERAL",
+        title: `${me.name} commented on a task`,
+        body: `${todo.text.slice(0, 60)} — ${body.trim().slice(0, 80)}`,
+        link: "/tasks",
+      })),
+    });
+  }
+
+  revalidatePath("/tasks");
+  revalidatePath(`/projects/${todo.projectId}`);
+  return { ok: true };
+}
+
+/** Assignee marks it done. If confirmation is required, the lead is notified. */
+export async function markTodoDone(todoId: string, note?: string) {
+  const me = await requireAuth();
+  const todo = await prisma.todo.findUnique({
+    where: { id: todoId },
+    include: { project: { select: { id: true, title: true, leadId: true, ownerId: true } }, assignees: true },
+  });
+  if (!todo) throw new Error("Task not found.");
+
+  const perms = await getProjectPermissions(me, todo.projectId);
+  const isAssignee = todo.assignees.some((a) => a.memberId === me.id);
+  if (!isAssignee && !perms.canEditTodos) throw new Error("Only an assignee can mark this done.");
+
+  await prisma.todo.update({
+    where: { id: todoId },
+    data: { done: true, completedById: me.id, completedAt: new Date(), reopenedAt: null },
+  });
+
+  await prisma.todoComment.create({
+    data: {
+      todoId,
+      authorId: me.id,
+      authorName: me.name,
+      kind: "COMPLETED",
+      body: note?.trim() || "Marked as done.",
+    },
+  });
+
+  const lead = todo.project.leadId ?? todo.project.ownerId;
+  if (todo.requiresConfirmation && lead && lead !== me.id) {
+    await prisma.notification.create({
+      data: {
+        recipientId: lead,
+        type: "GENERAL",
+        title: `${me.name} completed a task — needs your confirmation`,
+        body: `${todo.text} — ${todo.project.title}`,
+        link: "/tasks",
+      },
+    });
+    const { notifyBySms } = await import("./sms/send");
+    void notifyBySms(lead, `${me.name} marked done: ${todo.text} (${todo.project.title}). Confirm in the app.`, todo.projectId);
+  }
+
+  revalidatePath("/tasks");
+  revalidatePath(`/projects/${todo.projectId}`);
+  return { ok: true };
+}
+
+/** Project lead confirms — or rejects and reopens with a reason. */
+export async function confirmTodo(todoId: string, approve: boolean, note?: string) {
+  const me = await requireAuth();
+  const todo = await prisma.todo.findUnique({
+    where: { id: todoId },
+    include: { project: { select: { id: true, title: true, leadId: true, ownerId: true } }, assignees: true },
+  });
+  if (!todo) throw new Error("Task not found.");
+
+  const isLead = todo.project.leadId === me.id || todo.project.ownerId === me.id;
+  const perms = await getProjectPermissions(me, todo.projectId);
+  if (!isLead && me.role !== "ADMIN" && !perms.canEditTodos) {
+    throw new Error("Only the project lead or an admin can confirm this.");
+  }
+  if (todo.completedById === me.id && me.role !== "ADMIN") {
+    throw new Error("Someone else needs to confirm work you completed yourself.");
+  }
+
+  if (approve) {
+    await prisma.todo.update({
+      where: { id: todoId },
+      data: { confirmedById: me.id, confirmedAt: new Date() },
+    });
+    await prisma.todoComment.create({
+      data: { todoId, authorId: me.id, authorName: me.name, kind: "CONFIRMED", body: note?.trim() || "Confirmed complete." },
+    });
+  } else {
+    await prisma.todo.update({
+      where: { id: todoId },
+      data: { done: false, confirmedById: null, confirmedAt: null, reopenedAt: new Date() },
+    });
+    await prisma.todoComment.create({
+      data: { todoId, authorId: me.id, authorName: me.name, kind: "REOPENED", body: note?.trim() || "Reopened — not complete yet." },
+    });
+  }
+
+  const targets = new Set(todo.assignees.map((a) => a.memberId));
+  if (todo.completedById) targets.add(todo.completedById);
+  targets.delete(me.id);
+  if (targets.size) {
+    await prisma.notification.createMany({
+      data: Array.from(targets).map((recipientId) => ({
+        recipientId,
+        type: "GENERAL",
+        title: approve ? `${me.name} confirmed your work` : `${me.name} reopened a task`,
+        body: `${todo.text} — ${todo.project.title}`,
+        link: "/tasks",
+      })),
+    });
+  }
+
+  revalidatePath("/tasks");
+  revalidatePath(`/projects/${todo.projectId}`);
   return { ok: true };
 }

@@ -11,6 +11,7 @@ const MAIN = [
   { href: "/tasks", label: "Tasks", icon: "check" },
   { href: "/messages", label: "Messages", icon: "chat" },
   { href: "/meetings", label: "Meetings", icon: "calendar" },
+  { href: "/sms", label: "Texts", icon: "chat" },
 ];
 
 const WORKSPACE = [

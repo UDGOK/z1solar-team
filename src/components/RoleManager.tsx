@@ -31,6 +31,9 @@ const GLOBAL_CAPS: { key: string; label: string; hint: string }[] = [
   { key: "canTakeMeetingNotes", label: "Take meeting notes", hint: "Write notes on any meeting" },
   { key: "canViewResources", label: "View resources", hint: "See flyers, templates and the knowledge base" },
   { key: "canManageResources", label: "Manage resources", hint: "Add, edit and remove resources" },
+  { key: "canViewSms", label: "View SMS", hint: "See the text message inbox" },
+  { key: "canSendSms", label: "Send SMS", hint: "Text people from inside the app" },
+  { key: "canManageSmsContacts", label: "Manage SMS contacts", hint: "Approve which outside numbers may text in" },
 ];
 
 const DEFAULTS: { key: string; label: string }[] = [
