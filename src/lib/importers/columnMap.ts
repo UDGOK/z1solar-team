@@ -19,6 +19,9 @@ export type FieldKey =
   | "hqCountry"
   | "listing"
   | "sponsorTier"
+  | "sector"
+  | "reputationScore"
+  | "riskNotes"
   | "ignore";
 
 export const FIELD_LABELS: Record<FieldKey, string> = {
@@ -33,6 +36,9 @@ export const FIELD_LABELS: Record<FieldKey, string> = {
   hqCountry: "HQ country",
   listing: "Exhibitor / sponsor",
   sponsorTier: "Sponsor tier",
+  sector: "Sector (raw category)",
+  reputationScore: "Reputation score",
+  riskNotes: "Risk notes",
   ignore: "— ignore —",
 };
 
@@ -75,6 +81,18 @@ const HEADER_PATTERNS: { field: FieldKey; patterns: RegExp[] }[] = [
   {
     field: "listing",
     patterns: [/\b(listing|record\s*type|exhibitor\s*type|participation|type)\b/i],
+  },
+  {
+    field: "reputationScore",
+    patterns: [/reputation|\bscore\b|rating|standing/i],
+  },
+  {
+    field: "riskNotes",
+    patterns: [/risk\s*(assessment|notes?|comments?)?/i],
+  },
+  {
+    field: "sector",
+    patterns: [/^(sector|industry|category)$/i, /\braw\s*categor/i],
   },
   {
     field: "tagNames",
@@ -172,6 +190,9 @@ export type RawRow = {
   hqCountry?: string;
   listing?: string;
   sponsorTier?: string;
+  sector?: string;
+  reputationScore?: string;
+  riskNotes?: string;
   sourceLine: number;
 };
 
@@ -228,6 +249,9 @@ export function applyColumnMap(
       hqCountry: rec.hqCountry || undefined,
       listing: rec.listing || undefined,
       sponsorTier: rec.sponsorTier || undefined,
+      sector: rec.sector || undefined,
+      reputationScore: rec.reputationScore || undefined,
+      riskNotes: rec.riskNotes || undefined,
       sourceLine: firstDataLine + i,
     });
   });

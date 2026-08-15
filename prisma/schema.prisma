@@ -1071,6 +1071,26 @@ model Vendor {
   // Relationship notes that accumulate across every show.
   notes       String?
 
+  // The source list's own category text, kept verbatim. Tags are a curated set
+  // for filtering; this is what the show actually said, and is never discarded
+  // just because the mapping put it in a broader bucket.
+  sector String?
+
+  // --- Standing / risk -----------------------------------------------------
+  // 0-100. Nullable on purpose: "not assessed" and "scored zero" are very
+  // different things and must never render the same way.
+  reputationScore  Int?
+  riskNotes        String?
+  // Where the score came from: "manual" | "imported" | "ai". Stored because an
+  // unsourced judgement about a named company is worse than no judgement — six
+  // months on, nobody remembers which numbers were researched and which were
+  // generated. The UI labels anything that isn't "manual" as unverified.
+  riskSource       String?
+  riskAssessedAt   DateTime?
+  // Who last set it by hand, so a verified score is visibly different from an
+  // inherited one.
+  riskAssessedById String?
+
   createdById String?
   createdBy   TeamMember? @relation("VendorCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt   DateTime    @default(now())
@@ -1239,6 +1259,9 @@ model ExhibitorImportItem {
   description  String?
   // Comma-separated suggested tag names, resolved to VendorTag on apply.
   tagNames     String?
+  // The source list's own category text, carried through verbatim so the
+  // mapping to curated tags never destroys what the show actually said.
+  sector       String?
   contactName  String?
   contactEmail String?
   hqCountry    String?

@@ -121,6 +121,7 @@ export async function stageImportCore(
         websiteUrl: r.websiteUrl || null,
         description: r.description || null,
         tagNames: r.tagNames || null,
+        sector: r.sector || null,
         contactName: r.contactName || null,
         contactEmail: r.contactEmail || null,
         hqCountry: r.hqCountry || null,
@@ -200,6 +201,7 @@ export async function applyImportCore(
         if (!existing.description && item.description) fill.description = item.description;
         if (!existing.websiteUrl && item.websiteUrl) fill.websiteUrl = item.websiteUrl;
         if (!existing.hqCountry && item.hqCountry) fill.hqCountry = item.hqCountry;
+        if (!existing.sector && item.sector) fill.sector = item.sector;
         if (Object.keys(fill).length > 0) {
           await db.vendor.update({ where: { id: vendorId }, data: fill });
           result.vendorsUpdated++;
@@ -215,6 +217,7 @@ export async function applyImportCore(
           description: item.description,
           websiteUrl: item.websiteUrl,
           hqCountry: item.hqCountry,
+          sector: item.sector,
           createdById: actor.id,
         },
       });
