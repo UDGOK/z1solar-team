@@ -145,8 +145,29 @@ export function mergeExtractions(
   // Defensive: a malformed payload must never crash an import.
   if (!ai || !Array.isArray(ai.items) || ai.items.length === 0) return ruleItems;
 
-  const norm = (s: string) => s.toLowerCase().replace(/\W+/g, " ").trim();
-  const seen = new Set(ruleItems.map((r) => norm(r.text).slice(0, 50)));
+  const norm = (s: string) =>
+    s
+      .toLowerCase()
+      // Drop a leading "Name - " / "Name:" prefix. The rule extractor keeps it
+      // ("Muhammad - confirm 208V…") while AI usually strips it ("Confirm
+      // 208V…"), and without normalising both the same task appears twice.
+      .replace(/^[a-z][a-z .'-]{1,30}\s*[-–:]\s*/, "")
+      .replace(/\W+/g, " ")
+      .trim();
+
+  /** Word-overlap similarity, so near-identical phrasings collapse. */
+  const similar = (a: string, b: string) => {
+    if (!a || !b) return false;
+    if (a === b || a.includes(b) || b.includes(a)) return true;
+    const wa = new Set(a.split(" ").filter((w) => w.length > 3));
+    const wb = new Set(b.split(" ").filter((w) => w.length > 3));
+    if (wa.size === 0 || wb.size === 0) return false;
+    let shared = 0;
+    wa.forEach((w) => { if (wb.has(w)) shared++; });
+    return shared / Math.min(wa.size, wb.size) >= 0.75;
+  };
+
+  const existing = ruleItems.map((r) => norm(r.text));
   // Re-validate names here as well as in aiExtract. Filtering in one place
   // only would mean any other caller could let a hallucinated assignee
   // through, which is the single worst failure mode for this feature.
@@ -158,11 +179,10 @@ export function mergeExtractions(
     const text = item.text.trim();
     if (text.length < 4) continue;
 
-    const key = norm(text).slice(0, 50);
-    if (!key || seen.has(key)) continue;
-    // Also skip if it's a near-substring of something rules already found.
-    if ([...seen].some((s) => s.includes(key) || key.includes(s))) continue;
-    seen.add(key);
+    const key = norm(text);
+    if (!key) continue;
+    if (existing.some((e) => similar(e, key))) continue;
+    existing.push(key);
 
     const names = Array.isArray(item.assigneeNames)
       ? item.assigneeNames.filter((n) => typeof n === "string" && rosterLower.has(n.toLowerCase()))
