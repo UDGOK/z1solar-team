@@ -563,3 +563,114 @@ export async function discardImport(importId: string) {
   await prisma.exhibitorImport.delete({ where: { id: importId } });
   refresh(imp.tradeShowId);
 }
+
+// ---------------------------------------------------------------------------
+// Upload entry point
+// ---------------------------------------------------------------------------
+
+/**
+ * Accepts an uploaded file from the import wizard, reads it according to its
+ * type, and stages the rows for review.
+ *
+ * Returns a summary rather than redirecting so the wizard can show what was
+ * found — including how many lines were skipped, which is the number that tells
+ * you whether a parse went wrong.
+ */
+export async function stageImportFromUpload(tradeShowId: string, form: FormData) {
+  await requireManage(tradeShowId);
+
+  const file = form.get("file");
+  if (!file || typeof file === "string") throw new Error("No file was uploaded.");
+
+  const f = file as File;
+  const { detectKind, readDelimitedBuffer, readWorkbookBuffer, readPdfBuffer, MAX_UPLOAD_BYTES } =
+    await import("../importers/sources");
+
+  if (f.size > MAX_UPLOAD_BYTES) {
+    throw new Error(
+      `That file is ${(f.size / 1024 / 1024).toFixed(1)} MB. The limit is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`
+    );
+  }
+
+  const kind = detectKind(f.name, f.type);
+  if (kind === "unknown") {
+    throw new Error(
+      `Can't read "${f.name}". Use .csv, .xlsx or .pdf. (The old .xls format isn't supported — open it in Excel and Save As .xlsx.)`
+    );
+  }
+
+  const buf = Buffer.from(await f.arrayBuffer());
+
+  if (kind === "pdf") {
+    const { text, pages } = await readPdfBuffer(buf);
+    if (!text.trim()) {
+      throw new Error(
+        `No text found in that ${pages}-page PDF. It's probably a scan rather than real text — there's nothing to extract. Try a spreadsheet, or paste the directory page instead.`
+      );
+    }
+    const r = await stageImportFromText(tradeShowId, text, "PDF", f.name);
+    return { importId: r.importId, found: r.found, skipped: r.skipped, kind };
+  }
+
+  const grid =
+    kind === "xlsx" ? await readWorkbookBuffer(buf) : readDelimitedBuffer(buf);
+
+  if (grid.rows.length === 0) throw new Error("That file appears to be empty.");
+
+  const { hasHeader, map } = await suggestColumnMap(grid.rows);
+  const importId = await stageImportFromGrid(tradeShowId, grid.rows, map, {
+    source: kind === "xlsx" ? "FILE_XLSX" : "FILE_CSV",
+    fileName: f.name,
+    hasHeader,
+  });
+
+  const found = await prisma.exhibitorImportItem.count({ where: { importId } });
+  return {
+    importId,
+    found,
+    skipped: grid.rows.length - (hasHeader ? 1 : 0) - found,
+    kind,
+    sheetName: grid.sheetName,
+  };
+}
+
+/** Loads a staged import for the review screen. */
+export async function getImportForReview(importId: string) {
+  const imp = await prisma.exhibitorImport.findUnique({
+    where: { id: importId },
+    include: {
+      items: { orderBy: { sortOrder: "asc" }, include: { matchedVendor: { select: { name: true } } } },
+      tradeShow: { select: { id: true, name: true } },
+    },
+  });
+  if (!imp) throw new Error("That import no longer exists.");
+  const me = await requireMember();
+  const access = await getExhibitorAccess(me, imp.tradeShowId);
+  if (!access.canManage) throw new Error("Only trade show managers can review imports.");
+
+  return {
+    id: imp.id,
+    status: imp.status,
+    fileName: imp.fileName,
+    source: imp.source,
+    showId: imp.tradeShow.id,
+    showName: imp.tradeShow.name,
+    items: imp.items.map((i) => ({
+      id: i.id,
+      companyName: i.companyName,
+      booth: i.booth,
+      description: i.description,
+      websiteUrl: i.websiteUrl,
+      listing: i.listing,
+      sponsorTier: i.sponsorTier,
+      confidence: i.confidence,
+      origin: i.origin,
+      reason: i.reason,
+      matchKind: i.matchKind,
+      matchReason: i.matchReason,
+      matchedVendorName: i.matchedVendor?.name ?? null,
+      accepted: i.accepted,
+      sourceLine: i.sourceLine,
+    })),
+  };
+}

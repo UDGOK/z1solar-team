@@ -315,6 +315,14 @@ export default function TradeShowCard({
             )}
           </div>
 
+          {/* Always shown, even before any exhibitors exist — the empty state on
+              the other side explains how to import a list, so this is the way in. */}
+          <div className="flex gap-2 flex-wrap">
+            <a href={`/trade-shows/${show.id}/exhibitors`} className="btn-secondary text-xs">
+              Exhibitors &amp; meetings &rarr;
+            </a>
+          </div>
+
           {(show.websiteUrl || show.registrationUrl) && (
             <div className="flex gap-2 flex-wrap">
               {show.websiteUrl && (

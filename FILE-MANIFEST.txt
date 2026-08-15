@@ -4,7 +4,7 @@
 # Each line is: <line count><TAB>src/<path>
 # EXTRACT-SAFELY.ps1 and verify-files.bat check every entry after extraction.
 # A mismatch means Windows mangled a [bracket] folder — do not build or push.
-# 9 files covered.
+# 11 files covered.
 
 6	src/app/api/auth/[...nextauth]/route.ts
 55	src/app/api/files/[id]/route.ts
@@ -15,3 +15,5 @@
 48	src/app/projects/[id]/edit/page.tsx
 63	src/app/projects/[id]/financials/page.tsx
 338	src/app/projects/[id]/page.tsx
+31	src/app/trade-shows/[id]/exhibitors/import/page.tsx
+140	src/app/trade-shows/[id]/exhibitors/page.tsx
