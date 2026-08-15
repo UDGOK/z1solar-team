@@ -106,19 +106,20 @@ node scripts/make-manifest.js
 
 ---
 
-# This round — 15 August 2026 (f)
+# This round — 15 August 2026 (g)
 
-Adds a Score column to the exhibitor list and a detail panel explaining what a
-score means and where it came from.
+Timezone correctness. **This fixes a real display bug, not a preference.**
 
-**Changed:** `prisma/schema.prisma` (`riskAssessedBy` relation),
-`src/components/ExhibitorsHub.tsx`,
-`src/app/trade-shows/[id]/exhibitors/page.tsx`.
+**Changed:** new `src/lib/time.ts`, new `tests/time.test.ts`,
+`src/components/TradeShowCard.tsx`, `src/components/TradeShowsHub.tsx`,
+`src/components/ExhibitorsHub.tsx`, `src/components/ActivityFeed.tsx`,
+`src/components/AuditPanel.tsx`, `src/components/TodoThread.tsx`,
+`src/components/MeetingCard.tsx`,
+`src/app/trade-shows/[id]/exhibitors/page.tsx`,
+`src/app/api/trade-shows/[id]/target-list/route.ts`,
+plus the score column from round (f).
 
-**Schema DID change** — `npm run db:push` is required.
-
-> Run `db:push` every round regardless. It is additive and idempotent, and
-> saying "safe to skip" once already cost a broken page.
+**Schema changed in round (f)** — run `db:push`.
 
 ### Full sequence
 
@@ -131,28 +132,39 @@ npm run db:push
 npm run db:seed
 git status
 git add -A
-git commit -m "Add score column and scoring detail panel to the exhibitor list"
+git commit -m "Render all dates and times in Central; fix calendar dates shifting a day in non-UTC timezones"
 git push origin main
 ```
 
-`npm test` reports **145** assertions. `npm run test:db` reports **200**.
+`npm test` reports **230** assertions. `npm run test:db` also reports 230 plus
+the database suites.
 
-### What "Assess with AI" does
+### What was wrong
 
-Finds every company on the show with no score yet, sends them to DeepSeek in
-batches of 12, writes back a 0-100 score and a one-line note. Resumable — it
-never re-scores a company already assessed, so pressing it again continues
-rather than starting over. Requires `DEEPSEEK_API_KEY` in Vercel.
+`<input type="date">` gives `2026-09-01`, which stores as UTC midnight. It was
+then formatted with no timezone, so it rendered in **the viewer's browser
+timezone**. In Central that is 7pm on Aug 31 — so a show entered as Sep 1–3
+displayed as **"Aug 31 – Sep 2"**, and the countdown was a day out.
 
-### Reading the Score column
+### The rule, if you or anyone else adds a date later
 
-| Shown | Means |
-|---|---|
-| `88` | Scored, checked by a person |
-| `88?` | Scored by AI, nobody has verified it |
-| `n/r` | Asked, model didn't recognise the company — deliberately not a zero |
-| `—` | Never assessed |
+Two kinds of value, and mixing them up is silent:
 
-Click any score for the band definitions, the note, where it came from and
-when, and a box to set your own. Saving your own marks it checked and removes
-the `?`.
+- **Calendar dates** (from a date picker — show dates, deadlines, due dates)
+  → `formatDate()` / `formatDateRange()`. Read in UTC.
+- **Instants** (createdAt, meeting times, texts, last seen)
+  → `formatDateTime()` / `formatTime()` / `formatInstantDate()`. Read in Central,
+  labelled `CT`.
+
+Never call `toLocaleDateString` directly. `src/lib/time.ts` has the full
+explanation at the top.
+
+### Still to sweep — 25 sites
+
+Not yet converted, in lower-traffic surfaces: `src/lib/actions.ts`,
+`src/lib/weeklyReport.ts`, `src/lib/email.ts`, `src/lib/ai/assistant.ts`,
+`src/lib/purchases.ts`, `src/lib/presence.ts`,
+`src/components/PurchasesHub.tsx`, `src/components/MeetingImportPanel.tsx`,
+and the two PDF documents. These render in server time (UTC on Vercel) today,
+so they are consistent but an hour-shifted in places, not day-shifted. Worth
+finishing, not urgent.

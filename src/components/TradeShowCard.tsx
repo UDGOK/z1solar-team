@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { formatDate, formatDateRange, daysUntil as daysUntilCT } from "@/lib/time";
 import { setTradeShowAttendance, removeTradeShowAttendee, deleteTradeShow } from "@/lib/actions";
 
 export type ShowAttendee = {
@@ -52,12 +53,12 @@ const RSVP_COLOR: Record<string, string> = {
   Declined: "#8A8A85",
 };
 
+// Timezone handling lives in one place — see src/lib/time.ts. The local
+// implementations that used to be here read dates in the BROWSER's timezone,
+// so a show entered as 1 Sep displayed as 31 Aug for anyone west of UTC and the
+// countdown was a day out for everyone else.
 function daysUntil(iso: string): number {
-  const d = new Date(iso);
-  d.setHours(0, 0, 0, 0);
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  return Math.round((d.getTime() - now.getTime()) / 86400000);
+  return daysUntilCT(iso) ?? 0;
 }
 
 function countdownLabel(days: number): { text: string; tone: "past" | "urgent" | "soon" | "far" } {
@@ -77,14 +78,7 @@ const TONE_BG: Record<string, string> = {
 };
 
 function dateRange(start: string, end: string | null): string {
-  const s = new Date(start);
-  const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
-  if (!end) return s.toLocaleDateString("en-US", { ...opts, year: "numeric" });
-  const e = new Date(end);
-  const sameMonth = s.getMonth() === e.getMonth() && s.getFullYear() === e.getFullYear();
-  return sameMonth
-    ? `${s.toLocaleDateString("en-US", opts)}–${e.getDate()}, ${e.getFullYear()}`
-    : `${s.toLocaleDateString("en-US", opts)} – ${e.toLocaleDateString("en-US", { ...opts, year: "numeric" })}`;
+  return formatDateRange(start, end);
 }
 
 export default function TradeShowCard({
@@ -318,7 +312,7 @@ export default function TradeShowCard({
             {show.registrationDeadline && (
               <Detail
                 label="Register by"
-                value={new Date(show.registrationDeadline).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                value={formatDate(show.registrationDeadline, { month: "long" })}
               />
             )}
             {show.estimatedCost > 0 && (

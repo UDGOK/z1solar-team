@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { formatInstantDate, formatDate } from "@/lib/time";
 import { addTodoComment, markTodoDone, confirmTodo } from "@/lib/actions";
 
 export type ThreadComment = {
@@ -33,7 +34,7 @@ function when(iso: string) {
   const m = Math.round((Date.now() - d.getTime()) / 60000);
   if (m < 60) return `${m}m ago`;
   if (m < 1440) return `${Math.round(m / 60)}h ago`;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return formatInstantDate(d);
 }
 
 export default function TodoThread({
@@ -69,7 +70,8 @@ export default function TodoThread({
           <p className="text-[11px] text-brand-inkFaint mt-0.5">
             {task.projectTitle}
             {task.assigneeNames.length > 0 && <> · {task.assigneeNames.join(", ")}</>}
-            {task.dueDate && <> · due {new Date(task.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</>}
+            {/* dueDate came from a date picker — a calendar date, formatted in UTC. */}
+            {task.dueDate && <> · due {formatDate(task.dueDate, { year: undefined })}</>}
           </p>
         </div>
         <div className="shrink-0">

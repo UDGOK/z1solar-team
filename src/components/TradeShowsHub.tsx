@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useTransition } from "react";
+import { daysUntil as daysUntilCT, isPastDate } from "@/lib/time";
 import TradeShowCard, { type TradeShowItem } from "./TradeShowCard";
 import TradeShowForm from "./TradeShowForm";
 import { setTradeShowAccess } from "@/lib/actions";
@@ -35,9 +36,10 @@ export default function TradeShowsHub({
     const up: TradeShowItem[] = [];
     const pa: TradeShowItem[] = [];
     for (const s of shows) {
-      const ref = new Date(s.endDate || s.startDate);
-      ref.setHours(0, 0, 0, 0);
-      (ref >= today ? up : pa).push(s);
+      // "Upcoming" is decided in Central: a show ending today is still upcoming
+      // for the whole of that day, wherever the person looking happens to be.
+      const ref = s.endDate || s.startDate;
+      (isPastDate(ref) ? pa : up).push(s);
     }
     up.sort((a, b) => +new Date(a.startDate) - +new Date(b.startDate));
     pa.sort((a, b) => +new Date(b.startDate) - +new Date(a.startDate));
@@ -52,12 +54,13 @@ export default function TradeShowsHub({
 
   // Shows worth chasing: high priority, within 45 days, nobody confirmed.
   const gaps = upcoming.filter((s) => {
-    const d = Math.round((+new Date(s.startDate) - +today) / 86400000);
+    const d = daysUntilCT(s.startDate) ?? 0;
     return s.priority === "High" && d <= 45 && !s.attendees.some((a) => a.status === "Confirmed");
   });
 
   const next = upcoming[0];
-  const nextDays = next ? Math.round((+new Date(next.startDate) - +today) / 86400000) : null;
+  // Anchored to Central, so the countdown reads the same for everyone.
+  const nextDays = next ? daysUntilCT(next.startDate) : null;
 
   function startEdit(s: TradeShowItem) {
     setEditing(s);

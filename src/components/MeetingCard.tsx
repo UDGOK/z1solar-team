@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { formatDateTime, formatInstantDate } from "@/lib/time";
 import {
   setMeetingRsvp,
   saveMeetingNotes,
@@ -114,7 +115,7 @@ export default function MeetingCard({
             </div>
             <h3 className="font-heading text-lg font-extrabold text-brand-ink leading-tight">{meeting.title}</h3>
             <p className="text-xs text-brand-inkSoft mt-0.5">
-              {start.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+              {formatDateTime(start, { weekday: "short", year: undefined })}
               {" · "}{meeting.durationMins} min
               {meeting.location && <> · {meeting.location}</>}
             </p>
@@ -240,7 +241,7 @@ export default function MeetingCard({
                 {meeting.notesBy && (
                   <p className="text-[10px] text-brand-inkFaint mt-2">
                     — {meeting.notesBy}
-                    {meeting.notesAt && <> · {new Date(meeting.notesAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</>}
+                    {meeting.notesAt && <> · {formatInstantDate(meeting.notesAt)}</>}
                   </p>
                 )}
               </div>

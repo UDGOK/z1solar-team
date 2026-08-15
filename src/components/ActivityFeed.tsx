@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { formatInstantDate, BUSINESS_TZ } from "@/lib/time";
 import { activityIcon } from "@/lib/activity";
 
 function when(d: Date) {
@@ -9,7 +10,7 @@ function when(d: Date) {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
   if (days < 7) return `${days}d ago`;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return formatInstantDate(d);
 }
 
 function dayLabel(d: Date) {
@@ -20,7 +21,7 @@ function dayLabel(d: Date) {
   const diff = Math.round((today.getTime() - that.getTime()) / 86400000);
   if (diff === 0) return "Today";
   if (diff === 1) return "Yesterday";
-  return d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+  return d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: BUSINESS_TZ });
 }
 
 export default async function ActivityFeed({ projectId, limit = 40 }: { projectId: string; limit?: number }) {

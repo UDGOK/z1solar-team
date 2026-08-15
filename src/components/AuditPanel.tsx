@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { formatInstantDate, formatDateTime } from "@/lib/time";
 import { runReconciliation, previewRestore, confirmRestore } from "@/lib/actions";
 
 export type AuditEntry = {
@@ -16,7 +17,7 @@ function when(iso: string) {
   const m = Math.round((Date.now() - d.getTime()) / 60000);
   if (m < 60) return `${m}m ago`;
   if (m < 1440) return `${Math.round(m / 60)}h ago`;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return formatInstantDate(d);
 }
 
 export default function AuditPanel({
@@ -161,7 +162,7 @@ export default function AuditPanel({
                 <div className="space-y-3">
                   {plan.backupDate && (
                     <p className="text-[11px] text-brand-inkFaint">
-                      Backup taken {new Date(plan.backupDate).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
+                      Backup taken {formatDateTime(plan.backupDate)}
                     </p>
                   )}
                   <div className="border border-brand-line rounded overflow-hidden">

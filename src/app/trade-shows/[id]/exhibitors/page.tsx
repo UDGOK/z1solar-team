@@ -5,6 +5,7 @@ import AppShell from "@/components/AppShell";
 import ExhibitorsHub from "@/components/ExhibitorsHub";
 import { getExhibitorAccess } from "@/lib/exhibitors/access";
 import { PAGE_CONTAINER } from "@/lib/layout";
+import { formatDateRange } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
@@ -120,10 +121,7 @@ export default async function ExhibitorsPage({ params }: { params: Promise<{ id:
   }));
 
   const where = [show.venue, show.city, show.state].filter(Boolean).join(", ");
-  const dates =
-    show.endDate && show.endDate.getTime() !== show.startDate.getTime()
-      ? `${show.startDate.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })} – ${show.endDate.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}`
-      : show.startDate.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+  const dates = formatDateRange(show.startDate, show.endDate);
 
   return (
     <AppShell active="/trade-shows">

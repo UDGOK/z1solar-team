@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getExhibitorAccess } from "@/lib/exhibitors/access";
 import { MeetingTargetListDocument, type TargetRow } from "@/lib/pdf/MeetingTargetListDocument";
 import { registerPdfFonts } from "@/lib/pdf/fonts";
+import { formatDateRange, formatInstantDate } from "@/lib/time";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -68,12 +69,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     riskVerified: r.vendor.riskSource === "manual",
   }));
 
-  const fmt = (d: Date) =>
-    d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
-  const when =
-    show.endDate && show.endDate.getTime() !== show.startDate.getTime()
-      ? `${show.startDate.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })} – ${fmt(show.endDate)}`
-      : fmt(show.startDate);
+  // Show dates are calendar dates (UTC); "generated on" is an instant (Central).
+  const when = formatDateRange(show.startDate, show.endDate);
 
   registerPdfFonts();
 
@@ -82,7 +79,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     showWhen: when,
     showWhere: [show.venue, show.city, show.state].filter(Boolean).join(", "),
     ourBooth: show.boothInfo,
-    generatedOn: fmt(new Date()),
+    generatedOn: formatInstantDate(new Date()),
     rows: targets,
   });
 

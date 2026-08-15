@@ -13,6 +13,7 @@ import {
   setVendorScore,
 } from "@/lib/exhibitors/actions";
 import { MEETING_STATUSES } from "@/lib/exhibitors/constants";
+import { formatInstantDate } from "@/lib/time";
 
 export type ExhibitorItem = {
   id: string;
@@ -810,10 +811,7 @@ function Row({
                   <div key={n.id} className="mt-2 border-l-2 border-brand-line pl-2.5 text-[12.5px] text-brand-inkSoft">
                     <b>{n.authorName}</b>{" "}
                     <span className="text-brand-inkFaint">
-                      {new Date(n.createdAt).toLocaleDateString("en-GB", {
-                        day: "numeric",
-                        month: "short",
-                      })}
+                      {formatInstantDate(n.createdAt)}
                     </span>
                     <div>{n.body}</div>
                   </div>
@@ -1189,7 +1187,7 @@ function ScoreDetail({
             <p className="text-brand-inkSoft">
               Set by hand{v.riskAssessedByName ? ` by ${v.riskAssessedByName}` : ""}
               {v.riskAssessedAt
-                ? ` on ${new Date(v.riskAssessedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
+                ? ` on ${formatInstantDate(v.riskAssessedAt)}`
                 : ""}
               . Treat it as checked.
             </p>
@@ -1198,7 +1196,7 @@ function ScoreDetail({
               <b className="text-brand-amber">AI-generated and unverified.</b> Produced by DeepSeek
               from its training data
               {v.riskAssessedAt
-                ? ` on ${new Date(v.riskAssessedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
+                ? ` on ${formatInstantDate(v.riskAssessedAt)}`
                 : ""}
               . It is an impression, not research &mdash; there are no sources behind it and it
               can&rsquo;t see anything recent. Don&rsquo;t quote it to anyone. Overwrite it below
