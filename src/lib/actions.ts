@@ -190,6 +190,8 @@ export async function createProject(data: ProjectInput) {
  * real security boundary; the UI hiding a section is only cosmetic.
  */
 export async function updateProject(id: string, data: ProjectInput) {
+  // Snapshot before the write so the audit trail can show what moved.
+  const auditBefore = await prisma.project.findUnique({ where: { id } });
   const member = await requireAuth();
   const perms = await getProjectPermissions(member, id);
   if (!perms.canView) throw new Error("You don't have access to this project.");
@@ -301,6 +303,29 @@ export async function updateProject(id: string, data: ProjectInput) {
       questions: { create: questions },
     },
   });
+
+  // Record what actually changed. Financial fields are flagged so a money
+  // review can filter to just those.
+  if (auditBefore) {
+    const after = await prisma.project.findUnique({ where: { id } });
+    if (after) {
+      const { auditUpdate } = await import("./audit");
+      await auditUpdate({
+        entityType: "Project",
+        entityId: id,
+        entityLabel: after.title,
+        actor: { id: member.id, name: member.name, email: member.email },
+        before: auditBefore,
+        after,
+        only: [
+          "title", "category", "status", "completionPct", "priority",
+          "estBudget", "committed", "actualSpend",
+          "q1Proj", "q2Proj", "q3Proj", "q4Proj",
+          "leadId", "ownerId", "archived",
+        ],
+      });
+    }
+  }
 
   revalidatePath("/dashboard");
   revalidatePath("/projects");
@@ -1735,6 +1760,8 @@ export type RoleInput = {
   canApprovePurchases: boolean;
   canViewAllPurchases: boolean;
   canRecordPayments: boolean;
+  canViewAuditLog: boolean;
+  canRestoreBackup: boolean;
   defaultCanEditTalkingPoints: boolean;
   defaultCanEditKeyDates: boolean;
   defaultCanEditTodos: boolean;
@@ -1792,6 +1819,8 @@ export async function saveRole(id: string | null, data: RoleInput) {
     canApprovePurchases: !!data.canApprovePurchases,
     canViewAllPurchases: !!data.canViewAllPurchases,
     canRecordPayments: !!data.canRecordPayments,
+    canViewAuditLog: !!data.canViewAuditLog,
+    canRestoreBackup: !!data.canRestoreBackup,
     defaultCanEditTalkingPoints: !!data.defaultCanEditTalkingPoints,
     defaultCanEditKeyDates: !!data.defaultCanEditKeyDates,
     defaultCanEditTodos: !!data.defaultCanEditTodos,
@@ -3297,4 +3326,97 @@ export async function addPurchaseComment(purchaseId: string, body: string) {
 
   revalidatePath("/purchases");
   return { ok: true };
+}
+
+// ---------- Audit, reconciliation, restore ----------
+
+async function requireAuditViewer() {
+  const me = await requireAuth();
+  if (me.role === "ADMIN") return me;
+  const { getGlobalCapabilities } = await import("./permissions");
+  const caps = await getGlobalCapabilities(me);
+  if (!caps.canViewAuditLog) throw new Error("You don't have permission to view the audit log.");
+  return me;
+}
+
+/** Run a reconciliation check. Read-only unless repair is explicitly requested. */
+export async function runReconciliation(repair: boolean) {
+  const me = await requireAuth();
+  const { getGlobalCapabilities } = await import("./permissions");
+  const caps = await getGlobalCapabilities(me);
+  if (me.role !== "ADMIN" && !caps.canViewAllFinancials) {
+    throw new Error("You don't have permission to reconcile financials.");
+  }
+  // Repairing rewrites financial figures, so it's admin-only even if someone
+  // can view them.
+  if (repair && me.role !== "ADMIN") {
+    throw new Error("Only an administrator can apply financial corrections.");
+  }
+
+  const { reconcile } = await import("./reconcile");
+  const result = await reconcile({
+    actor: { id: me.id, name: me.name, email: me.email },
+    repair,
+  });
+
+  revalidatePath("/settings/audit");
+  revalidatePath("/dashboard");
+  return {
+    ok: true,
+    checked: result.checked,
+    driftCount: result.drift.length,
+    repaired: result.repaired,
+    drift: result.drift,
+  };
+}
+
+/** Inspect a backup file. Changes nothing — this is the mandatory first step. */
+export async function previewRestore(json: string) {
+  const me = await requireAuth();
+  const { getGlobalCapabilities } = await import("./permissions");
+  const caps = await getGlobalCapabilities(me);
+  if (me.role !== "ADMIN" && !caps.canRestoreBackup) {
+    throw new Error("You don't have permission to restore backups.");
+  }
+  if (!json?.trim()) throw new Error("Choose a backup file first.");
+
+  const { planRestore } = await import("./restore");
+  return planRestore(json);
+}
+
+/**
+ * Apply a restore. Requires typing the exact confirmation phrase — a restore
+ * is not something anyone should be able to trigger with a stray click.
+ */
+export async function confirmRestore(json: string, confirmation: string) {
+  const me = await requireAuth();
+  const { getGlobalCapabilities } = await import("./permissions");
+  const caps = await getGlobalCapabilities(me);
+  if (me.role !== "ADMIN" && !caps.canRestoreBackup) {
+    throw new Error("You don't have permission to restore backups.");
+  }
+  if (confirmation.trim().toUpperCase() !== "RESTORE") {
+    throw new Error('Type RESTORE to confirm.');
+  }
+
+  const { planRestore, applyRestore } = await import("./restore");
+  const plan = await planRestore(json);
+  if (!plan.valid) throw new Error(plan.error || "That backup file can't be read.");
+
+  const result = await applyRestore(json);
+
+  const { recordAudit } = await import("./audit");
+  await recordAudit({
+    entityType: "Settings",
+    entityId: "restore",
+    entityLabel: "Backup restore",
+    action: "RESTORE",
+    actor: { id: me.id, name: me.name, email: me.email },
+    summary: `Restored ${result.totalCreated} record(s) from backup${plan.backupDate ? ` dated ${new Date(plan.backupDate).toLocaleDateString("en-US")}` : ""}; ${result.skipped} already present`,
+  });
+
+  revalidatePath("/settings/audit");
+  revalidatePath("/dashboard");
+  revalidatePath("/projects");
+  return { ok: true, ...result };
 }

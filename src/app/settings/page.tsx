@@ -50,6 +50,16 @@ export default async function SettingsPage() {
           </div>
         )}
 
+        {(isAdmin || caps.canViewAuditLog) && (
+          <div className="card p-5 bg-white">
+            <p className="kicker mb-2">Audit &amp; Integrity</p>
+            <p className="text-xs text-brand-inkFaint mb-3">
+              Who changed what and when, financial reconciliation against line items, and restoring from a backup.
+            </p>
+            <Link href="/settings/audit" className="btn-secondary text-xs">Open audit log →</Link>
+          </div>
+        )}
+
         {caps.canManageCategories && (
           <div className="card p-5 bg-white">
             <p className="kicker mb-2">Project Categories</p>

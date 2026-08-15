@@ -537,6 +537,8 @@ model Role {
   canApprovePurchases  Boolean @default(false)
   canViewAllPurchases  Boolean @default(false)
   canRecordPayments    Boolean @default(false)
+  canViewAuditLog      Boolean @default(false)
+  canRestoreBackup     Boolean @default(false)
 
   // --- Defaults applied when this person is granted a project ---
   defaultCanEditTalkingPoints Boolean @default(true)
@@ -921,6 +923,55 @@ model PurchaseFile {
   kind       String   @default("OTHER") // QUOTE | PO | RECEIPT | INVOICE | OTHER
   uploadedById String?
   createdAt  DateTime @default(now())
+}
+
+// Append-only record of who changed what. Deliberately has no update or
+// delete action anywhere in the codebase — an audit log you can edit isn't
+// evidence. Actor name and entity label are denormalised so the record still
+// reads correctly after the person or the record itself is gone.
+model AuditLog {
+  id          String   @id @default(cuid())
+
+  entityType  String   // Project | FinancialLineItem | PurchaseRequest | TeamMember | Role | Category | Settings
+  entityId    String
+  entityLabel String   // e.g. the project title at the time of the change
+
+  action      String   // CREATE | UPDATE | DELETE | APPROVE | REJECT | RESTORE | RECONCILE
+
+  // Field-level detail for changes worth reconstructing later. Stored as JSON
+  // text: [{ field, from, to }]
+  changes     String?
+  // Human sentence for the timeline, e.g. "Budget $353,000 -> $400,000".
+  summary     String
+
+  // Flags money-affecting changes so a financial review can filter to just
+  // those without reading everything.
+  isFinancial Boolean  @default(false)
+
+  actorId     String?
+  actorName   String
+  actorEmail  String?
+  ipAddress   String?
+
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@index([isFinancial])
+}
+
+// Result of a committed-vs-line-items reconciliation run. Kept as a record so
+// drift that appeared and was repaired is still visible afterwards.
+model ReconciliationRun {
+  id            String   @id @default(cuid())
+  runBy         String?
+  runByName     String
+  projectsChecked Int    @default(0)
+  driftFound    Int      @default(0)
+  driftRepaired Int      @default(0)
+  // JSON detail of each discrepancy: project, stored, computed, difference.
+  details       String?
+  createdAt     DateTime @default(now())
 }
 
 model Settings {

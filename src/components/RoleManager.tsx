@@ -38,6 +38,8 @@ const GLOBAL_CAPS: { key: string; label: string; hint: string }[] = [
   { key: "canApprovePurchases", label: "Approve purchases", hint: "Sign off spend up to $25,000" },
   { key: "canViewAllPurchases", label: "View all purchases", hint: "See requests across the whole company" },
   { key: "canRecordPayments", label: "Record payments", hint: "Mark invoices as paid" },
+  { key: "canViewAuditLog", label: "View audit log", hint: "See who changed what, and when" },
+  { key: "canRestoreBackup", label: "Restore backups", hint: "Import a backup file — high trust" },
 ];
 
 const DEFAULTS: { key: string; label: string }[] = [

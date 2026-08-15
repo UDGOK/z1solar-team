@@ -31,6 +31,8 @@ export type GlobalCapabilities = {
   canApprovePurchases: boolean;
   canViewAllPurchases: boolean;
   canRecordPayments: boolean;
+  canViewAuditLog: boolean;
+  canRestoreBackup: boolean;
 };
 
 const ALL_CAPS_TRUE: GlobalCapabilities = {
@@ -42,6 +44,7 @@ const ALL_CAPS_TRUE: GlobalCapabilities = {
   canManageResources: true, canViewResources: true, canManageCategories: true,
   canViewSms: true, canSendSms: true, canManageSmsContacts: true,
   canRequestPurchases: true, canApprovePurchases: true, canViewAllPurchases: true, canRecordPayments: true,
+  canViewAuditLog: true, canRestoreBackup: true,
 };
 
 const ALL_CAPS_FALSE: GlobalCapabilities = {
@@ -53,6 +56,7 @@ const ALL_CAPS_FALSE: GlobalCapabilities = {
   canManageResources: false, canViewResources: false, canManageCategories: false,
   canViewSms: false, canSendSms: false, canManageSmsContacts: false,
   canRequestPurchases: false, canApprovePurchases: false, canViewAllPurchases: false, canRecordPayments: false,
+  canViewAuditLog: false, canRestoreBackup: false,
 };
 
 /**
@@ -96,6 +100,8 @@ export async function getGlobalCapabilities(member: CurrentMember): Promise<Glob
     canApprovePurchases: r.canApprovePurchases,
     canViewAllPurchases: r.canViewAllPurchases,
     canRecordPayments: r.canRecordPayments,
+    canViewAuditLog: r.canViewAuditLog,
+    canRestoreBackup: r.canRestoreBackup,
   };
 }
 
