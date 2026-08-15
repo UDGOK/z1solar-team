@@ -413,6 +413,82 @@ async function main() {
     }
   }
 
+  // --- Project codes for SMS routing ---
+  // Derived from the title: first significant word, or an acronym for longer
+  // names. Uniqueness is enforced with a numeric suffix rather than failing.
+  console.log("Assigning project codes…");
+  function deriveCode(title: string): string {
+    // A parenthetical is almost always the distinguishing part — "Data Center,
+    // OK (Mead)" is MEAD, not DATA, and that also avoids colliding with every
+    // other project starting "Data Center".
+    const paren = title.match(/\(([^)]+)\)/);
+    if (paren) {
+      const inner = paren[1].replace(/[^A-Za-z0-9 ]/g, " ").trim();
+      const w = inner.split(/\s+/).filter((x) => x.length > 2 && !/^(the|and|for|inc|llc)$/i.test(x));
+      if (w.length) return w[0].toUpperCase().slice(0, 10);
+    }
+
+    const cleaned = title.replace(/[^A-Za-z0-9 ]/g, " ").trim();
+    const words = cleaned
+      .split(/\s+/)
+      .filter((w) => w.length > 1 && !/^(the|and|for|inc|llc|of|at)$/i.test(w));
+    if (words.length === 0) return "PROJ";
+
+    // Generic leading words don't identify anything on their own — prefer the
+    // word that actually distinguishes this project from its siblings.
+    const GENERIC = /^(data|center|centre|project|new|usa|us|uk|ksa)$/i;
+    const distinctive = words.find((w) => !GENERIC.test(w) && w.length >= 4);
+    // Only use a whole word if it fits — truncating gives "CERTIFICAT", which
+    // reads like a typo. Fall back to an acronym instead.
+    if (distinctive && distinctive.length <= 9) return distinctive.toUpperCase();
+    if (distinctive && words.length === 1) return distinctive.toUpperCase().slice(0, 6);
+
+    // Otherwise build an acronym rather than truncating a single long word
+    // mid-syllable ("CERTIFICAT" reads like a typo).
+    if (words.length > 1) return words.map((w) => w[0]).join("").toUpperCase().slice(0, 10);
+    return words[0].toUpperCase().slice(0, 10);
+  }
+
+  const needCodes = await prisma.project.findMany({ where: { code: null }, select: { id: true, title: true } });
+  const taken = new Set(
+    (await prisma.project.findMany({ where: { code: { not: null } }, select: { code: true } }))
+      .map((p) => p.code!)
+  );
+  for (const proj of needCodes) {
+    let code = deriveCode(proj.title);
+    let n = 2;
+    while (taken.has(code)) code = `${deriveCode(proj.title).slice(0, 8)}${n++}`;
+    taken.add(code);
+    await prisma.project.update({ where: { id: proj.id }, data: { code } });
+    console.log(`  ${proj.title} -> ${code}`);
+  }
+
+  // --- Team phone numbers into the approved SMS list ---
+  // Team members could always text in (they're matched on TeamMember.phone),
+  // but they were invisible on the Approved numbers screen, which made the
+  // allowlist look incomplete. Mirroring them makes it truthful.
+  console.log("Syncing team phones into approved SMS numbers…");
+  function normalise(raw: string | null): string | null {
+    if (!raw) return null;
+    const bare = raw.replace(/\D/g, "");
+    if (bare.length === 10) return `+1${bare}`;
+    if (bare.length === 11 && bare.startsWith("1")) return `+${bare}`;
+    return bare ? `+${bare}` : null;
+  }
+  const withPhones = await prisma.teamMember.findMany({ where: { phone: { not: null } } });
+  let added = 0;
+  for (const m of withPhones) {
+    const phone = normalise(m.phone);
+    if (!phone) continue;
+    const existing = await prisma.smsContact.findUnique({ where: { phone } });
+    if (existing) continue;
+    await prisma.smsContact.create({
+      data: { phone, name: m.name, company: "Z1Power (team)", active: true, notes: "Synced from team directory" },
+    });
+    added++;
+  }
+  if (added) console.log(`  Added ${added} team number(s) to the approved list.`);
+
   console.log("Done.");
 }
 

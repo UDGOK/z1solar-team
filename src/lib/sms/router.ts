@@ -68,7 +68,7 @@ export async function routeMessage(
 
   const projects = await prisma.project.findMany({
     where: { archived: false, id: { in: visibleProjectIds } },
-    select: { id: true, title: true },
+    select: { id: true, title: true, code: true },
     orderBy: { title: "asc" },
   });
 
@@ -97,7 +97,10 @@ export async function routeMessage(
   if (kw) {
     const key = kw[1].trim().toLowerCase();
     const rest = kw[2].trim();
-    const match = findProject(projects, key);
+    // An exact project code always wins — it's unambiguous by definition,
+    // which is the whole point of having one.
+    const byCode = projects.find((p) => p.code && p.code.toLowerCase() === key);
+    const match = byCode ?? findProject(projects, key);
     if (match) return { projectId: match.id, routedBy: "keyword", cleanBody: rest };
   }
 
@@ -111,7 +114,7 @@ export async function routeMessage(
     projectId: null,
     routedBy: "none",
     cleanBody: trimmed,
-    askChoices: projects.slice(0, 5).map((p) => ({ id: p.id, title: p.title })),
+    askChoices: projects.slice(0, 5).map((p) => ({ id: p.id, title: p.code ? `${p.code} — ${p.title}` : p.title })),
   };
 }
 
@@ -121,7 +124,7 @@ export async function routeMessage(
  * conservative, because filing a field note against the wrong project is worse
  * than asking.
  */
-function findProject(projects: { id: string; title: string }[], key: string) {
+function findProject(projects: { id: string; title: string; code?: string | null }[], key: string) {
   const lower = projects.map((p) => ({ ...p, l: p.title.toLowerCase() }));
 
   const exact = lower.find((p) => p.l === key);

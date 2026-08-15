@@ -144,6 +144,10 @@ model Project {
   rebates       ProjectRebate[]
   activities    Activity[]
 
+  // Short reference code used for SMS routing ("MEAD: concrete poured") and
+  // on POs and purchase records. Unique so a text can never be ambiguous.
+  code         String?       @unique
+
   // Business priority, set by an admin. Nullable + defaulted so adding it is
   // purely additive — existing rows get "Medium" without a data migration.
   priority      String        @default("Medium") // High | Medium | Low

@@ -51,7 +51,7 @@ export type TeamMemberInput = {
 export async function createTeamMember(data: TeamMemberInput) {
   await requireAdmin();
   if (!data.name?.trim()) throw new Error("Name is required.");
-  await prisma.teamMember.create({
+  const createdMember = await prisma.teamMember.create({
     data: {
       name: data.name.trim(),
       title: data.title?.trim() || null,
@@ -59,8 +59,42 @@ export async function createTeamMember(data: TeamMemberInput) {
       phone: data.phone?.trim() || null,
     },
   });
+
+  // A new member with a phone number can text in immediately, so mirror them
+  // into the approved list right away.
+  await syncTeamPhoneToSms(createdMember.id);
+
   revalidatePath("/team");
   revalidatePath("/dashboard");
+  revalidatePath("/sms");
+}
+
+/**
+ * Mirrors a team member's phone into the approved SMS list. They could always
+ * text in (sender matching checks TeamMember.phone first), but without this
+ * the Approved numbers screen looked incomplete, which made the allowlist
+ * impossible to audit at a glance.
+ */
+async function syncTeamPhoneToSms(memberId: string) {
+  try {
+    const m = await prisma.teamMember.findUnique({ where: { id: memberId } });
+    if (!m) return;
+    const { normalizePhone } = await import("./sms/twilio");
+    const phone = normalizePhone(m.phone);
+    if (!phone) return;
+    const existing = await prisma.smsContact.findUnique({ where: { phone } });
+    if (existing) {
+      if (existing.name !== m.name) {
+        await prisma.smsContact.update({ where: { id: existing.id }, data: { name: m.name } });
+      }
+      return;
+    }
+    await prisma.smsContact.create({
+      data: { phone, name: m.name, company: "Z1Power (team)", active: true, notes: "Synced from team directory" },
+    });
+  } catch (e) {
+    console.error("[sms] team phone sync failed:", e);
+  }
 }
 
 export async function updateTeamMember(id: string, data: TeamMemberInput) {
@@ -74,8 +108,12 @@ export async function updateTeamMember(id: string, data: TeamMemberInput) {
       phone: data.phone?.trim() || null,
     },
   });
+  // Keep the approved SMS list truthful when someone's number changes.
+  await syncTeamPhoneToSms(id);
+
   revalidatePath("/team");
   revalidatePath("/dashboard");
+  revalidatePath("/sms");
 }
 
 export async function deleteTeamMember(id: string) {

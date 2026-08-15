@@ -54,6 +54,12 @@ export async function sendSms(opts: {
     }
 
     const params = new URLSearchParams({ To: to, From: from, Body: opts.body.slice(0, 1500) });
+
+    // Ask Twilio to report final delivery. Without this a message that Twilio
+    // accepts and then fails to deliver stays "queued" forever, which looks
+    // like success — the exact failure this is meant to surface.
+    const base = process.env.TWILIO_WEBHOOK_URL?.replace(/\/api\/sms\/webhook\/?$/, "");
+    if (base) params.set("StatusCallback", `${base}/api/sms/status`);
     const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
       method: "POST",
       headers: {
