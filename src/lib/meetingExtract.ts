@@ -20,10 +20,29 @@ export type Extracted = {
   sourceLine: number;
 };
 
+/**
+ * Alternate spellings and nicknames seen in real meeting notes. Without this,
+ * a section headed "@Zakir" assigns to nobody even though Syed is on the team.
+ * Keys are lowercase; values must match a roster name (also compared lowercase).
+ */
+export const NAME_ALIASES: Record<string, string> = {
+  zakir: "syed",
+  "zakir bhai": "syed",
+  yasser: "yasir",
+  muhammad: "mohammad",
+  mohamed: "mohammad",
+  mohammed: "mohammad",
+  muzz: "mohammad",
+  javed: "javaid",
+  "javed bhai": "javaid",
+  "shahab bhai": "shahab",
+  "shah": "shahab",
+};
+
 /** Explicit markers people actually type in notes. */
 const EXPLICIT = [
   /^\s*(?:action|action item|ai|todo|to-do|task|next step)s?\s*[:\-–]\s*(.+)$/i,
-  /^\s*[-*]\s*\[\s?\]\s*(.+)$/,            // - [ ] markdown checkbox
+  /^\s*[-*•]?\s*\[\s*[xX ]?\s*\]\s*(.+)$/,   // - [ ] / [x] markdown checkbox
   /^\s*(?:☐|□)\s*(.+)$/,
 ];
 
@@ -48,6 +67,18 @@ export function extractDueDate(text: string, from = new Date()): Date | null {
   base.setHours(17, 0, 0, 0); // default to end of business day
 
   if (/\b(?:eod|end of day|today)\b/.test(t)) return base;
+
+  // A deadline column often holds just the word: "[Sunday]", "[Weekend]".
+  // Handled before the "by <day>" pattern because there's no preposition.
+  const bare = t.trim().match(/^(sunday|monday|tuesday|wednesday|thursday|friday|saturday|weekend)$/);
+  if (bare) {
+    const d = new Date(base);
+    const target = bare[1] === "weekend" ? 6 : DAYS.indexOf(bare[1]);
+    let delta = (target - d.getDay() + 7) % 7;
+    if (delta === 0) delta = 7;
+    d.setDate(d.getDate() + delta);
+    return d;
+  }
 
   if (/\btomorrow\b/.test(t)) {
     const d = new Date(base); d.setDate(d.getDate() + 1); return d;
@@ -112,6 +143,17 @@ export function extractDueDate(text: string, from = new Date()): Date | null {
 /** Matches names mentioned in a line against the real team roster. */
 function findNames(line: string, roster: { id: string; name: string }[]): { id: string; name: string }[] {
   const hits: { id: string; name: string }[] = [];
+
+  // Resolve nicknames first: "Zakir" -> "syed", so the roster match below finds
+  // the real person.
+  const lower = line.toLowerCase();
+  for (const [alias, real] of Object.entries(NAME_ALIASES)) {
+    if (new RegExp(`(?:^|[^a-z])@?${escapeRe(alias)}\\b`, "i").test(lower)) {
+      const person = roster.find((r) => r.name.toLowerCase().startsWith(real));
+      if (person && !hits.some((h) => h.id === person.id)) hits.push(person);
+    }
+  }
+
   for (const person of roster) {
     const first = person.name.split(/\s+/)[0];
     // Word-boundary match on either the full name or the first name, so
@@ -136,7 +178,29 @@ export function extractActionItems(
   const lines = raw.split(/\r?\n/);
   const out: Extracted[] = [];
 
+  // Real notes group tasks under a person's heading — "### @Zakir" followed by
+  // several "- [ ]" lines. The name never appears in the task line itself, so
+  // without tracking the current section every one of those items would end up
+  // unassigned. This is the single most important thing the parser does on
+  // real-world notes.
+  let sectionOwners: { id: string; name: string }[] = [];
+
   lines.forEach((rawLine, i) => {
+    // Heading that names a person: "### @Zakir", "## Yasir", "**@Ryan**"
+    const heading = rawLine.match(/^\s*(?:#{1,6}\s*|\*\*)\s*@?([A-Za-z][A-Za-z .()'-]{1,40}?)(?:\s*\(.*?\))?\s*\**\s*:?\s*$/);
+    if (heading) {
+      const label = heading[1].trim();
+      if (/^(all team members|team|everyone|all)$/i.test(label)) {
+        sectionOwners = [];        // group action — leave for the reviewer to assign
+      } else {
+        const found = findNames(label, roster);
+        // Only switch owner if the heading actually names someone we know;
+        // otherwise it's a topic heading like "## Action Items".
+        if (found.length) sectionOwners = found;
+        else if (/^(action items?|notes?|summary|agenda|decisions?)$/i.test(label)) sectionOwners = [];
+      }
+      return;
+    }
     // Strip transcript speaker labels and timestamps: "[00:14:22] Yasir: ..."
     let line = rawLine
       .replace(/^\s*\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s*/, "")
@@ -185,8 +249,23 @@ export function extractActionItems(
 
     if (!matched) return;
 
-    const names = findNames(text.length < line.length ? line : text, roster);
-    const dueDate = extractDueDate(line, now);
+    // A trailing "- [TBD]" / "- [Monday]" is the deadline column in this
+    // style of notes. Pull it out before it pollutes the task wording.
+    let dueTag: string | null = null;
+    const tag = text.match(/\s*[-–]\s*\[([^\]]{1,30})\]\s*$/);
+    if (tag) {
+      dueTag = tag[1].trim();
+      text = text.slice(0, tag.index).trim();
+    }
+
+    const inline = findNames(text.length < line.length ? line : text, roster);
+    // Under a person's heading the heading IS the assignment. Names inside the
+    // line are usually recipients ("share leads with Ryan and Muhammad"), not
+    // the owner — so the section wins whenever we're in one.
+    const names = sectionOwners.length ? sectionOwners : inline;
+
+    const dueSource = dueTag && !/^tbd$/i.test(dueTag) ? dueTag : line;
+    const dueDate = extractDueDate(dueSource, now);
 
     // No name at all makes it much less likely to be a real assignment.
     if (names.length === 0 && confidence === "high") confidence = "medium";
