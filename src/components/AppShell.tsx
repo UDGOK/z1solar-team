@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import AssistantWidget from "./AssistantWidget";
+import { isChatConfigured } from "@/lib/ai/assistant";
 import { getCurrentMember } from "@/lib/auth";
 import { getViewableProjectIds } from "@/lib/permissions";
 import { categoryColor, sortCategories } from "@/lib/categories";
@@ -66,6 +68,16 @@ export default async function AppShell({
       {/* Not a <main> — each page renders its own, and nesting them is
           invalid HTML and breaks screen-reader landmark navigation. */}
       <div className="flex-1 min-w-0 pb-20 lg:pb-0">{children}</div>
+
+      {/* Available on every page, scoped per person. See AssistantWidget.
+          Only rendered when signed in — the login screen has no assistant. */}
+      {member && (
+        <AssistantWidget
+          memberName={member.name}
+          isAdmin={member.role === "ADMIN"}
+          configured={isChatConfigured()}
+        />
+      )}
     </div>
   );
 }

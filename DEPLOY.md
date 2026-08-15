@@ -106,20 +106,16 @@ node scripts/make-manifest.js
 
 ---
 
-# This round — 15 August 2026 (g)
+# This round — 15 August 2026 (h)
 
-Timezone correctness. **This fixes a real display bug, not a preference.**
+Assistant as a dockable chat panel on every page, plus a real permission fix.
 
-**Changed:** new `src/lib/time.ts`, new `tests/time.test.ts`,
-`src/components/TradeShowCard.tsx`, `src/components/TradeShowsHub.tsx`,
-`src/components/ExhibitorsHub.tsx`, `src/components/ActivityFeed.tsx`,
-`src/components/AuditPanel.tsx`, `src/components/TodoThread.tsx`,
-`src/components/MeetingCard.tsx`,
-`src/app/trade-shows/[id]/exhibitors/page.tsx`,
-`src/app/api/trade-shows/[id]/target-list/route.ts`,
-plus the score column from round (f).
+**Changed:** new `src/components/AssistantWidget.tsx`,
+new `src/lib/assistantActions.ts`, new `tests/assistantScope.test.ts`,
+`src/lib/ai/assistant.ts`, `src/components/AppShell.tsx`.
 
-**Schema changed in round (f)** — run `db:push`.
+**No schema change** this round — but run `db:push` anyway. It is additive and
+idempotent, and skipping it once already cost a broken page.
 
 ### Full sequence
 
@@ -132,39 +128,27 @@ npm run db:push
 npm run db:seed
 git status
 git add -A
-git commit -m "Render all dates and times in Central; fix calendar dates shifting a day in non-UTC timezones"
+git commit -m "Add dockable assistant panel; scope trade show and exhibitor data to each person's access"
 git push origin main
 ```
 
-`npm test` reports **230** assertions. `npm run test:db` also reports 230 plus
-the database suites.
+`npm test` reports **230**. `npm run test:db` reports **301**.
 
-### What was wrong
+### The permission bug this fixes
 
-`<input type="date">` gives `2026-09-01`, which stores as UTC midnight. It was
-then formatted with no timezone, so it rendered in **the viewer's browser
-timezone**. In Central that is 7pm on Aug 31 — so a show entered as Sep 1–3
-displayed as **"Aug 31 – Sep 2"**, and the countdown was a day out.
+The assistant's context included **every upcoming trade show for everybody**,
+with no `canViewTradeShows` check. Anyone could ask about shows and be answered.
+Now the same rule as the module itself applies: the capability, or being on that
+show's attendee list. A person on one show's roster gets that show only.
 
-### The rule, if you or anyone else adds a date later
+Exhibitor and vendor data was not in the assistant's context at all, so it
+couldn't answer anything about the 811 companies. It now receives the flagged
+meetings for shows that person can see — booth, owners, linked projects, what we
+want from them — and never the ones they can't.
 
-Two kinds of value, and mixing them up is silent:
+### Where the widget is
 
-- **Calendar dates** (from a date picker — show dates, deadlines, due dates)
-  → `formatDate()` / `formatDateRange()`. Read in UTC.
-- **Instants** (createdAt, meeting times, texts, last seen)
-  → `formatDateTime()` / `formatTime()` / `formatInstantDate()`. Read in Central,
-  labelled `CT`.
-
-Never call `toLocaleDateString` directly. `src/lib/time.ts` has the full
-explanation at the top.
-
-### Still to sweep — 25 sites
-
-Not yet converted, in lower-traffic surfaces: `src/lib/actions.ts`,
-`src/lib/weeklyReport.ts`, `src/lib/email.ts`, `src/lib/ai/assistant.ts`,
-`src/lib/purchases.ts`, `src/lib/presence.ts`,
-`src/components/PurchasesHub.tsx`, `src/components/MeetingImportPanel.tsx`,
-and the two PDF documents. These render in server time (UTC on Vercel) today,
-so they are consistent but an hour-shifted in places, not day-shifted. Worth
-finishing, not urgent.
+Bottom-right of every page. Minimises to a pill; **Esc** closes it. Open/closed
+survives navigation, the conversation does not — it is deliberately never saved,
+because a stored transcript would outlive a change in someone's access.
+"Expand" opens the existing full-page `/assistant`.

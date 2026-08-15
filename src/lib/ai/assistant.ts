@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { formatDate, formatInstantDate } from "../time";
 import type { CurrentMember } from "@/lib/auth";
 import { getViewableProjectIds, getGlobalCapabilities, getProjectPermissions } from "@/lib/permissions";
 
@@ -52,12 +53,8 @@ export async function buildContext(member: CurrentMember): Promise<string> {
       take: 10,
       select: { title: true, startsAt: true, notes: true, status: true },
     }),
-    prisma.tradeShow.findMany({
-      where: { startDate: { gte: new Date() } },
-      orderBy: { startDate: "asc" },
-      take: 8,
-      select: { name: true, startDate: true, city: true, state: true, priority: true, status: true },
-    }),
+    // Trade shows are fetched separately, behind a permission check — see below.
+    Promise.resolve([] as any[]),
   ]);
 
   const lines: string[] = [];
@@ -102,15 +99,93 @@ export async function buildContext(member: CurrentMember): Promise<string> {
     lines.push("");
     lines.push("## Recent and upcoming meetings");
     for (const m of meetings) {
-      lines.push(`- ${m.title} — ${m.startsAt.toLocaleDateString("en-US", { month: "short", day: "numeric" })} (${m.status})${m.notes ? `\n    notes: ${m.notes.slice(0, 400)}` : ""}`);
+      lines.push(`- ${m.title} — ${formatInstantDate(m.startsAt)} (${m.status})${m.notes ? `\n    notes: ${m.notes.slice(0, 400)}` : ""}`);
     }
   }
 
-  if (shows.length) {
-    lines.push("");
-    lines.push("## Upcoming trade shows");
-    for (const s of shows) {
-      lines.push(`- ${s.name} — ${s.startDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}${s.city ? `, ${s.city}` : ""} · ${s.priority} priority · ${s.status}`);
+  // ---- Trade shows and exhibitors -----------------------------------------
+  //
+  // Gated. This block used to run unconditionally, which meant somebody with no
+  // trade show access could ask the assistant about shows and be answered. The
+  // rule here matches the module itself: holding canViewTradeShows, or being on
+  // a given show's attendee list.
+  //
+  // Nothing is filtered out AFTER the model sees it. Anything this person may
+  // not see is never fetched, so there is nothing for the model to leak.
+  {
+    const record = await prisma.teamMember.findUnique({
+      where: { id: member.id },
+      select: { canViewTradeShows: true, canManageTradeShows: true },
+    });
+    const attending = await prisma.tradeShowAttendee.findMany({
+      where: { memberId: member.id, status: { not: "Declined" } },
+      select: { tradeShowId: true },
+    });
+    const attendingIds = attending.map((a) => a.tradeShowId);
+    const canSeeAllShows = isAdmin || !!record?.canViewTradeShows;
+
+    if (canSeeAllShows || attendingIds.length > 0) {
+      const visibleShows = await prisma.tradeShow.findMany({
+        where: canSeeAllShows
+          ? { startDate: { gte: new Date() } }
+          : { id: { in: attendingIds } },
+        orderBy: { startDate: "asc" },
+        take: 8,
+        select: {
+          id: true, name: true, startDate: true, city: true, state: true,
+          priority: true, status: true,
+        },
+      });
+
+      if (visibleShows.length) {
+        lines.push("");
+        lines.push("## Upcoming trade shows");
+        for (const s of visibleShows) {
+          lines.push(
+            `- ${s.name} — ${formatDate(s.startDate)}${s.city ? `, ${s.city}` : ""} · ${s.priority} priority · ${s.status}`
+          );
+        }
+
+        // Only the meetings we actually want, not all 811 companies — the full
+        // directory would swamp the context and is better answered on the page.
+        const flagged = await prisma.tradeShowExhibitor.findMany({
+          where: { tradeShowId: { in: visibleShows.map((s) => s.id) }, meetingWanted: true },
+          include: {
+            vendor: {
+              select: {
+                name: true, description: true, reputationScore: true,
+                riskNotes: true, riskSource: true,
+              },
+            },
+            tradeShow: { select: { name: true } },
+            owners: { include: { member: { select: { name: true } } } },
+            projects: { include: { project: { select: { title: true } } } },
+          },
+          orderBy: { booth: "asc" },
+          take: 60,
+        });
+
+        if (flagged.length) {
+          lines.push("");
+          lines.push("## Vendors we want to meet at those shows");
+          for (const e of flagged) {
+            const owners = e.owners.map((o) => o.member.name).join(", ") || "nobody assigned";
+            const projects = e.projects.map((p) => p.project.title).join(", ");
+            // The score is passed WITH its provenance, so the assistant can't
+            // present a generated number as an established fact.
+            const score =
+              e.vendor.reputationScore !== null
+                ? ` · standing ${e.vendor.reputationScore}/100 (${e.vendor.riskSource === "manual" ? "checked by a person" : "AI-generated, unverified"})`
+                : "";
+            lines.push(
+              `- ${e.vendor.name} — ${e.tradeShow.name}${e.booth ? ` booth ${e.booth}` : ""} · ${e.meetingStatus} · chased by ${owners}${projects ? ` · about ${projects}` : ""}${score}`
+            );
+            if (e.vendor.description) lines.push(`    what they do: ${e.vendor.description.slice(0, 200)}`);
+            if (e.notes) lines.push(`    what we want: ${e.notes.slice(0, 200)}`);
+            if (e.vendor.riskNotes) lines.push(`    risk note (${e.vendor.riskSource === "manual" ? "checked" : "unverified"}): ${e.vendor.riskNotes.slice(0, 200)}`);
+          }
+        }
+      }
     }
   }
 
@@ -143,7 +218,8 @@ How to answer:
 - You can also answer general questions unrelated to the company — industry knowledge, technical questions, drafting help. Be genuinely useful.
 - Keep answers concise and practical. This is a working tool, not a chat companion.
 - The data below is scoped to what this specific person is permitted to see. If they ask about something not in it, say you don't have visibility rather than speculating — do not suggest they may lack permission, just say you don't have that information.
-- Money figures are USD.`;
+- Money figures are USD.
+- Vendor standing scores marked "AI-generated, unverified" are a language model's impression, not research. If you cite one, say so in the same breath. Never present an unverified score or risk note as established fact, and never repeat a risk note about a named company without that caveat.`;
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
